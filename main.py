@@ -5,12 +5,13 @@ from matplotlib.widgets import SliderBase
 import vedo
 from vedo import *
 import numpy
+import vedo.vtkclasses
 
-mesh = Mesh('xarm-s3.stl')
-mesh = Mesh('xarm-s4.stl')
-mesh = Mesh('xarm-s5.stl')
-mesh = Mesh('xarm-s6.stl')
-mesh = Mesh('xarm-sbase.stl')
+#mesh = Mesh('xarm-s3.stl')
+#mesh = Mesh('xarm-s4.stl')
+#mesh = Mesh('xarm-s5.stl')
+#mesh = Mesh('xarm-s6.stl')
+#mesh = Mesh('xarm-sbase.stl')
 
 plt = Plotter(title='xArm')
 
@@ -56,7 +57,8 @@ class Segment:
 
         self.parent = parent
         self.length = length
-        self.mesh = mesh
+        self.mesh = mesh.clone()
+        self.source_mesh = mesh.clone()
         self.servo_num = servo_num
 
     """
@@ -139,8 +141,8 @@ class Segment:
         if self.servo_num == 5:
             segment_direction = rotate_vector_3d(segment_direction, [0,0,1], 90)
 
-        if self.servo_num == 3:
-            print("segment:", self.servo_num, "axis_rotation:", axis_rotation, "parent_axis:", parent_axis, "initial_direction:", self.initial_direction, "direction:", segment_direction)
+        #if self.servo_num == 3:
+        #    print("segment:", self.servo_num, "axis_rotation:", axis_rotation, "parent_axis:", parent_axis, "initial_direction:", self.initial_direction, "direction:", segment_direction)
 
         return segment_direction / numpy.linalg.norm(segment_direction)
     
@@ -155,25 +157,67 @@ class Segment:
             return self.parent.get_segment_vector() + self.parent.get_origin() + [0,0,35.0] #add real height instead
         return self.parent.get_segment_vector() + self.parent.get_origin()
     
+    def get_line(self):
+        line = Line(self.origin, self.current_axis() * self.length * 2 + self.origin)
+        plane = Plane(self.origin, self.direction, s=(50,50))
+        output = merge(line, plane)
+        output.name = "line"
+        return output
+
     def set_mesh_pos(self):  
-        self.origin = self.get_origin()          
+        self.origin = self.get_origin()
+        self.direction = self.current_axis() / numpy.linalg.norm(self.current_axis())
 
-        direction = self.current_axis() / numpy.linalg.norm(self.current_axis())
+        #self.mesh.dataset = self.source_mesh.dataset
+        #self.mesh.dataset = None
+        #self.mesh = self.source_mesh.clone()
 
-        self.mesh.pos(0,0,0)
-        if numpy.allclose(self.old_direction, direction) == False:
-            self.mesh.reorient(self.old_direction, direction, rad=True) # must set new direction relative to old direction
-            print("reorient old_direction: ", self.old_direction, " direction: ", direction, " servo_num", self.servo_num)
-        self.mesh.pos(self.origin)
+        originChange = numpy.allclose(self.old_origin, self.origin) == False
+        directionChange = numpy.allclose(self.old_direction, self.direction) == False
 
-        self.old_direction = direction
+        if originChange or directionChange:
+        #LT.reorient(self.initial_direction, direction, rad=True)
+            LT = vedo.LinearTransform()
+            crossvec = np.cross(self.initial_direction, self.direction)
+            angleth = np.arccos(np.dot(self.initial_direction, self.direction))
+            LT.T.RotateWXYZ(np.rad2deg(angleth), crossvec)
+            #LT.T.RotateWXYZ(-self.source_mesh.transform.orientation[0] * 1.4142, self.direction)
+            #LT.T.RotateWXYZ(-LT.orientation[0] * 1.4142, self.direction)
+            LT.T.RotateWXYZ(-np.rad2deg(angleth), self.direction)
+            LT.T.Translate(self.origin)
+            print("reorient old_direction: ", self.old_direction, " direction: ", self.direction, " servo_num", self.servo_num)
+            print("crossvec: ", crossvec, " angleth: ", angleth)
+            tp = vedo.vtkclasses.new("TransformPolyDataFilter")
+            tp.SetTransform(LT.T)
+            tp.SetInputData(self.source_mesh.dataset)
+            tp.Update()
+            self.mesh.dataset.DeepCopy(tp.GetOutput())
 
-    origin = vector(0, 0, 0) # origin of the individual segment
+        #self.mesh.transform = LT
+        #self.mesh.apply_transform(LT, concatenate=False)
+
+        #self.mesh.point_locator = None
+        #self.mesh.cell_locator = None
+        #self.mesh.line_locator = None
+        
+
+        #self.mesh.pos(0,0,0)
+        #if numpy.allclose(self.old_direction, direction) == False:
+        #    self.mesh.reorient(self.old_direction, direction, rad=True) # must set new direction relative to old direction
+        #    print("reorient old_direction: ", self.old_direction, " direction: ", direction, " servo_num", self.servo_num)
+        #self.mesh.pos(self.origin)
+
+        self.old_direction = self.direction
+        self.old_origin = self.origin
+
+    origin = vector(0,0,0) # origin of the individual segment
+    old_origin = vector(0,0,0)
     direction = None # direction normal vector of the individual segment
     old_direction = None
     initial_direction = None
     parent = None
     mesh = None
+    source_mesh = None
     rotation = 0
     length = 0
     axis_of_rotation = None
@@ -233,8 +277,13 @@ for s in segments:
     plt += s.mesh
 
 def loop_func(evt):
+    global plt
+    plt.remove("line")
     for seg in segments:
+        #plt.remove(seg.mesh)
         seg.set_mesh_pos()
+        plt.add(seg.get_line())
+        #plt += seg.mesh
     plt.render()
 
 plt.add_callback("timer", loop_func)

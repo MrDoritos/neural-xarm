@@ -610,33 +610,59 @@ def move_to_target(widget, event):
         print("failed to calculate")
     else:
         #prevrot = np.pi/2
-        prevrot = 0
-        prev = [0,1]
+        prevmag = [0,1]
+        #prev = [0,1]
+        prev = [0,0]
         new_origins.reverse()
         new_origins.pop(0)
         new_origins.append(target_pl2d)
         for i in range(len(new_origins)):
             cur = new_origins[i]
-            cur = cur / np.linalg.norm(cur)
+            #cur = cur / np.linalg.norm(cur)
+            #cur = cur - prev
+
+            dif = cur - prev
+            mag = dif / np.linalg.norm(dif)
+            #cur = cur + prev
             #cur[0] = -cur[0]
             servo = segments[i + 2]
-            dp = np.dot(prev, cur)
+            #_dp = np.dot(prev, cur)
+            #dt = np.linalg.det([prev, cur])
+            dt = np.linalg.det([[0,0],mag])
+            _dp = np.dot(prevmag, mag)
+            dp = _dp
+            
             #if i == 0:
             #    dp = np.dot(prev, -cur)
-            rot = np.arccos(dp)# - np.arctan2(prev[1], prev[0])
-            if i == 0:
-                rot = np.pi - rot
-            deg = (np.rad2deg(rot)) / 360 # + (np.pi / 2)
+            #rot = np.arccos(dp)# - np.arctan2(prev[1], prev[0])
+            if i < 0:
+                dp = 1
+                dt = 0
+            #rot = -np.arctan2(dt, dp)
+            rot = np.arctan2(mag[1], mag[0]) + (np.pi / 2)
+            """
+                dp_6 = np.dot(seg2d_6, target_2d)
+                dt_6 = np.linalg.det([seg2d_6, target_2d])
+                rot_6 = np.arctan2(dt_6, dp_6)
+                rot_6 = (np.rad2deg(rot_6) + 180) / 360
+            """
+            #if i == 0:
+            #    rot = np.pi - rot
+            #deg = (np.rad2deg(rot) + 180) / 180 # + (np.pi / 2)
+            #.25 is 90
+            # 0 - 360
+            deg = ((np.rad2deg(rot)) / 180) * 0.5
             print(deg)
             servo.rotation = deg
-            segments[i + 2].rotation = deg
-            servos[i+1].value = deg
+            #segments[i + 2].rotation = deg
+            #servos[i+1].value = deg
 
 
-            print("servo:", servo.servo_num, "dp:", dp, "prevrot:", np.rad2deg(prevrot), "rot:", np.rad2deg(rot), "deg:", deg * 360, "cur:", cur, "prev:", prev)
+            print("servo:", servo.servo_num, "dt:", dt, "dp:", dp, "_dp:", _dp, "prevmag:", prevmag, "mag:", mag, "rot:", np.rad2deg(rot), "deg:", deg * 360, "cur:", cur, "prev:", prev)
             #prev = (prev + cur) / 2
+            #prev = cur
             prev = cur
-            prevrot = rot
+            prevmag = mag
 
     """
     pos = utils.make3d(pos)
@@ -734,4 +760,4 @@ def loop_func(evt):
 plt.add_callback("timer", loop_func)
 plt.timer_callback("start", dt=1)
 #plt.show(axes=3).close()
-plt.show(axes=Axes(axes_box)).close()
+plt.show(axes=Axes(axes_box), size=(700,700)).close()

@@ -7,6 +7,10 @@ from vedo import *
 import numpy
 import vedo.addons
 import vedo.vtkclasses
+import pygame
+import importlib
+
+xarm = importlib.import_module('xarm_control')
 
 plt = Plotter(title='xArm')
 
@@ -237,9 +241,9 @@ class Segment:
 
 s_base = Segment(None, z_axis, z_direction, 0, 46.19, Mesh('xarm-sbase.stl', c='blue', alpha=1.0), 7) # was 46.0 for length, real length is 65
 s_6 = Segment(s_base, z_axis, z_direction, 0, 35.98, Mesh('xarm-s6.stl', c='blue', alpha=1.0), 6) # was 35.0 for length
-s_5 = Segment(s_6, y_axis, z_direction, 0, 96.0, Mesh('xarm-s5.stl', c='blue', alpha=1.0), 5)
+s_5 = Segment(s_6, y_axis, z_direction, 0, 98.0, Mesh('xarm-s5.stl', c='blue', alpha=1.0), 5)
 s_4 = Segment(s_5, y_axis, z_direction, 0, 96.0, Mesh('xarm-s4.stl', c='blue', alpha=1.0), 4)
-s_3 = Segment(s_4, y_axis, z_direction, 0, 103.0, Mesh('xarm-s3.stl', c='blue', alpha=1.0), 3)
+s_3 = Segment(s_4, y_axis, z_direction, 0, 150.0, Mesh('xarm-s3.stl', c='blue', alpha=1.0), 3)
 
 def slider_alpha(widget, event):
     for s in segments:
@@ -739,12 +743,119 @@ for x in range(1, 5):
 for s in segments:
     plt += s.mesh
 
+joysticks = []
+clock = pygame.time.Clock()
+
+map_axis = {
+    0: 1,
+    1: 0,
+    4: 2
+}
+wrist = 0
+gripper = 0
+last_wg = [0,0]
+mirror_axis = [2]
+last_axis_values = [0,0,0]
+robot = None
+last_send = 0
+send_interval = 500
+
+def handle_pygame_input():
+    global joysticks, clock, coords, last_axis_values, robot, last_send, gripper, wrist
+
+    change = False
+    clock.tick(60)
+    for event in pygame.event.get():
+        print(event)
+
+        if 'joy' in event.dict and 'axis' in event.dict and event.axis in [2,5,3]:
+            if event.axis == 2:
+                #gripper += event.value * 0.01
+                last_wg[0] = -(event.value + 1)
+            elif event.axis == 5:
+                #gripper -= event.value * 0.01
+                last_wg[0] = (event.value + 1)
+            elif event.axis == 3:
+                #wrist += event.value * 0.01
+                last_wg[1] = event.value
+                
+
+        if 'joy' in event.dict and 'axis' in event.dict and event.axis in map_axis:
+            map = map_axis[event.axis]
+            val = event.value
+
+            if map in mirror_axis:
+                val = -val
+            
+            if (abs(val) < 0.2):
+                val = 0 # deadzone
+
+            last_axis_values[map] = val
+    
+    if abs(last_wg[0]) > 0.1:
+        gripper += last_wg[0] * 0.05
+        if (abs(gripper) > 1):
+            gripper /= abs(gripper)
+        
+    if abs(last_wg[1]) > 0.2:
+        wrist += last_wg[1] * 0.05
+        if (abs(wrist) > 1):
+            wrist /= abs(wrist)
+
+    for i in range(0, 3):
+        adval = last_axis_values[i] * 0.01
+        coords[i].value += adval
+
+        #rcoords = get_slider_coords()
+
+        #if (s_5.get_origin()[i] + rcoords[i]) > 250:
+        #    coords[i].value = 250 / coordlim
+
+        if abs(adval) > 0:
+            change = True
+
+            if abs(coords[i].value) > 1:
+                coords[i].value /= abs(coords[i].value)
+
+    if change:
+        move_to_target(None, None)
+
+    if last_send + send_interval < pygame.time.get_ticks():
+        #robot.move_to(get_target_coords())
+        axis = [0, 0, 0, 0, wrist, gripper]
+        flip = [1, 1, -1, 1, 1, 1]
+
+        for i in range(0, 4):
+            val = segments[i + 1].rotation * flip[i]
+            
+            if not np.isfinite(val):
+                return
+
+            mult = .450 / .250
+            # val just means 360 degrees per 1
+            deg = val * 360 + 180
+            mod = np.mod(deg, 360)
+            if mod < 0:
+                mod += 360
+
+            axis[i] = ((mod / 180) - 1) * mult
+
+        if all(np.isfinite(axis)):
+            print("sending:", axis)
+            robot.move_all(axis, send_interval)
+
+        last_send = pygame.time.get_ticks()
+
+
+
 def loop_func(evt):
     global plt, showLinesButton, updateFunc, showDebugObjects, debug_objects, perst_objects
 
     plt.remove("line")
     debug_objects = []
     showDebugObjects = showLinesButton.status_idx
+
+    handle_pygame_input()
 
     for seg in segments:
         seg.set_mesh_pos()
@@ -761,7 +872,21 @@ def loop_func(evt):
 
     plt.render()
 
+pygame.init()
+robot = xarm.SafeXArm()
+
+# for al the connected joysticks
+for i in range(0, pygame.joystick.get_count()):
+    # create an Joystick object in our list
+    joysticks.append(pygame.joystick.Joystick(i))
+    # initialize the appended joystick (-1 means last array item)
+    joysticks[-1].init()
+    # print a statement telling what the name of the controller is
+    print ("Detected joystick "),joysticks[-1].get_name(),"'"
+
 plt.add_callback("timer", loop_func)
 plt.timer_callback("start", dt=1)
 #plt.show(axes=3).close()
 plt.show(axes=Axes(axes_box), size=(700,700)).close()
+
+robot.rest()

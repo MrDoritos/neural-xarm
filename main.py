@@ -305,7 +305,7 @@ lastSegment = None
 debugObjects = []
 
 def update_coord_text():
-    targetCoordsText.text("Target Coordinates: " + str(get_target_coords()) + "\nSlider Coordinates: " + str(get_slider_coords()))
+    targetCoordsText.text("Target Coordinates: " + str(get_target_coords()) + "\nSlider Coordinates: " + str(get_slider_coords()) + "\nServo Angles: " + str([x.rotation for x in segments]))
 
 # Set coordinates
 def update_target_coords():
@@ -378,7 +378,7 @@ def map_to_xy(pos, r=0, a=-z_axis, o=[0,0,0], t=[0,0,0]):
     return npos + t
 
 def move_to_target(widget, event):
-    global s_3, s_4, s_5, s_6, s_base, plt, debug_objects, segments
+    global s_3, s_4, s_5, s_6, s_base, plt, debug_objects, segments, showDebugObjects
 
     debug_objects = []
     bad_calculation = False
@@ -400,9 +400,11 @@ def move_to_target(widget, event):
     
     dp_6 = np.dot(seg2d_6, target_2d)
     dt_6 = np.linalg.det([seg2d_6, target_2d])
-    rot_6 = np.arctan2(dt_6, dp_6)
-    rot_6 = (np.rad2deg(rot_6) + 180) / 360
-    deg_6 = rot_6 * 360
+    dif_6 = target_2d - seg2d_6
+    #rot_6 = np.arctan2(dt_6, dp_6)
+    rot_6 = np.arctan2(dif_6[1], dif_6[0])
+    rot_6 = (np.rad2deg(rot_6) + 360) / 360
+    deg_6 = (rot_6-0.5) * 360
 
     s_6.rotation = rot_6
     print("6:", deg_6)
@@ -644,7 +646,9 @@ def move_to_target(widget, event):
             calcmag = dif + diffmag
             calcmag = calcmag / np.linalg.norm(calcmag)
             calcmag = mag
-            rot = -np.arctan2(calcmag[1], calcmag[0]) + (np.pi / 2) - prevrot
+            #rot = -np.arctan2(calcmag[1], calcmag[0]) + (np.pi / 2) - prevrot
+            #rot = np.arctan2(calcmag[1], calcmag[0]) - (np.pi / 2) - prevrot
+            rot = np.arctan2(calcmag[0], calcmag[1]) - prevrot
             """
                 dp_6 = np.dot(seg2d_6, target_2d)
                 dt_6 = np.linalg.det([seg2d_6, target_2d])
@@ -656,14 +660,14 @@ def move_to_target(widget, event):
             #deg = (np.rad2deg(rot) + 180) / 180 # + (np.pi / 2)
             #.25 is 90
             # 0 - 360
-            deg = ((np.rad2deg(rot)) / 180) * 0.5
+            deg = ((np.rad2deg(rot)) / 180) * 0.5 + 1
             #print(deg)
             servo.rotation = deg
             #segments[i + 2].rotation = deg
             #servos[i+1].value = deg
 
-
-            #print("servo:", servo.servo_num, "dt:", dt, "dp:", dp, "_dp:", _dp,"calcmag:", calcmag, "diffmag:", diffmag, "prevmag:", prevmag, "mag:", mag, "prevrot:", np.rad2deg(prevrot), "rot:", np.rad2deg(rot), "deg:", deg * 360, "cur:", cur, "prev:", prev)
+            if showDebugObjects:
+                print("servo:", servo.servo_num, "dt:", dt, "dp:", dp, "_dp:", _dp,"calcmag:", calcmag, "diffmag:", diffmag, "prevmag:", prevmag, "mag:", mag, "prevrot:", np.rad2deg(prevrot), "rot:", np.rad2deg(rot), "deg:", deg * 360, deg, "cur:", cur, "prev:", prev)
             #prev = (prev + cur) / 2
             #prev = cur
             prev = cur

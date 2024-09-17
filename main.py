@@ -54,6 +54,11 @@ y_direction = y_axis
 x_direction = x_axis
 
 showDebugObjects = False
+updateFunc = None
+lastSegment = None
+debug_objects = []
+perst_objects = []
+create_objects = True
 
 class Segment:
     def __init__(self, parent, axis_of_rotation, direction, rotation, length, mesh, servo_num):
@@ -114,10 +119,10 @@ class Segment:
         return self.parent.get_segment_vector() + self.parent.get_origin()
     
     def get_line(self):
-        output = []
+        global create_objects, debug_objects
         
-        if not showDebugObjects:
-            return output
+        if not create_objects:
+            return
 
         #initialLine = Line(self.origin, self.initial_direction * self.length + self.origin, c="red")
         #rotationLine = Line(self.origin, self.axis_of_rotation * self.length * 0.5 + self.origin, c="blue")
@@ -136,9 +141,9 @@ class Segment:
         xVec = Line(self.origin, rotVec[0] * 50 + self.origin, c="red", lw=3)
         yVec = Line(self.origin, rotVec[1] * 50 + self.origin, c="blue", lw=3)
         zVec = Line(self.origin, rotVec[2] * self.length + self.origin, c="green", lw=3)
-        output.append(xVec)
-        output.append(yVec)
-        output.append(zVec)
+        debug_objects.append(xVec)
+        debug_objects.append(yVec)
+        debug_objects.append(zVec)
         
         #output.append(initialLine)
         #output.append(rotationLine)
@@ -149,10 +154,10 @@ class Segment:
         #output.append(dirPlane)
 
 
-        for x in output:
-            x.name = "line"
+        #for x in output:
+        #    x.name = "line"
 
-        return output
+        #return output
 
     def set_mesh_pos(self):  
         self.origin = self.get_origin()
@@ -273,8 +278,8 @@ targetCoordsText = vedo.Text2D("", pos=(0.05, 0.95), s=0.5, c="black")
 axes_box = Box(pos=(0,0,250), length=500, width=500, height=500)
 
 def show_radius(segment):
-    global plt, showDebugObjects
-    if not showDebugObjects:
+    global create_objects, debug_objects
+    if not create_objects:
         return
 
     length = 0
@@ -295,14 +300,9 @@ def show_radius(segment):
     cir.reorient(segment.axis_of_rotation, z_axis)
     cir.reorient(y_axis, dir[1])
 
-    point.name = "line"
-    cir.name = "line"
-    line.name = "line"
-    plt += point, cir, line
-
-updateFunc = None
-lastSegment = None
-debugObjects = []
+    debug_objects.append(line)
+    debug_objects.append(point)
+    debug_objects.append(cir)
 
 def update_coord_text():
     targetCoordsText.text("Target Coordinates: " + str(get_target_coords()) + "\nSlider Coordinates: " + str(get_slider_coords()) + "\nServo Angles: " + str([x.rotation for x in segments]))
@@ -326,9 +326,7 @@ def update_servo_positions():
     for servo in servos:
         servo.value = servo.segment.rotation
     update_coord_text()
-    if showDebugObjects:
-        show_radius(s_5)
-        plt += debug_objects
+    show_radius(s_5)
     lastSegment = None
     updateFunc = update_servo_positions
 
@@ -378,15 +376,14 @@ def map_to_xy(pos, r=0, a=-z_axis, o=[0,0,0], t=[0,0,0]):
     return npos + t
 
 def move_to_target(widget, event):
-    global s_3, s_4, s_5, s_6, s_base, plt, debug_objects, segments, showDebugObjects
+    global s_3, s_4, s_5, s_6, s_base, plt, perst_objects, segments, showDebugObjects, create_objects
 
-    debug_objects = []
     bad_calculation = False
     # get slider xyz
     target_coords = get_slider_coords()
     target_2d = np.array([target_coords[0], target_coords[1]])
-
-    debug_objects.append(Point(target_coords, c="black"))
+    debug_objects = perst_objects
+    debug_objects.clear()
 
     # set servo positions of segments
 
@@ -402,12 +399,34 @@ def move_to_target(widget, event):
     dt_6 = np.linalg.det([seg2d_6, target_2d])
     dif_6 = target_2d - seg2d_6
     #rot_6 = np.arctan2(dt_6, dp_6)
-    rot_6 = np.arctan2(dif_6[1], dif_6[0])
-    rot_6 = (np.rad2deg(rot_6) + 360) / 360
-    deg_6 = (rot_6-0.5) * 360
+    atan2_6 = np.arctan2(dif_6[1], dif_6[0])
+    norm_6 = atan2_6 / np.pi # -1 to 1
+    #rot_6 = (np.rad2deg(atan2_6) + 180) / 360 # 0-1
+    rot_6 = (norm_6 + 1) / 2 # 0-1
+    #deg_6 = (-rot_6+0.5) * 360
+    deg_6 = rot_6 * 360# + 180 # good for plane 0-360
+    #serv_6 = -(norm_6 / 2) + 1 #0-2
+    serv_6 = rot_6 # 0-2
+    #serv_6 = 1 + (rot_6 + 0.5)
 
-    s_6.rotation = rot_6
-    print("6:", deg_6)
+    """
+    norm = atan2 / pi -> -1 to 1
+    rot = (norm + 1) / 2 -> 0 to 1
+    deg = rot * 360 -> 0 to 360
+    serv = rot
+
+
+    .25 rot = 90 deg
+    .37 rot = 133.2 deg
+    .630 -> 1.370 = 
+    -.370 -> .370 = 
+    """
+
+    # 0-2 * 360 = 0-720
+    #0.66 -> 360 * .66 = 237.6, 1.33 -> 360 * 1.33 = 479.8
+
+    s_6.rotation = serv_6
+    print("atan2_6:", atan2_6, norm_6, "deg_6:", deg_6, "rot_6:", rot_6, "serv_6:", serv_6, serv_6 * 360)
 
 
     # place point and s_5 on same plane / remove rotation
@@ -415,33 +434,40 @@ def move_to_target(widget, event):
     seg_5 = s_5.get_origin()
 
     # s5 to target and s6 rotation to target
-    debug_objects.append(Arrow(seg_5, target_coords))
-    debug_objects.append(Arrow(seg2d_6, target_2d))
 
     # target point without rotation and translation
-    target_pl = rotate_vector_3d(target_coords - seg_5, -z_axis, deg_6)
+    __target_pl = rotate_vector_3d(target_coords - seg_5, z_axis, deg_6)
     #target_pl2d = target_pl[0:3:2]
     #target_pl3d = [target_pl2d[0], target_pl2d[1], 0]
-    target_pl3d = map_to_xy(target_coords, deg_6, o=seg_5)
+
+
+
+    # target point must be forward of servo 5. deg_6 is the rotation of servo 6 which completes this
+    # we can successfully ignore 3d state beyond this point, all calculations can be done in 2d
+    target_pl3d = map_to_xy(target_coords, deg_6, o=seg_5, a=-z_axis)
     target_pl2d = target_pl3d[0:2]
-
-    # rotated point in world
-    debug_objects.append(Point(target_pl + seg_5, c="blue"))
-
     plo3d = [0,0,0]
     plo2d = plo3d[0:2]
     pl3d = np.asarray([500,0,0])
     pl2d = pl3d[0:2]
     s2d = np.asarray([500,500])
 
+    # rotated point in world
+    if create_objects:
+        debug_objects.append(Point(__target_pl + seg_5, c="blue"))
+        debug_objects.append(Point(target_coords, c="black"))
+        debug_objects.append(Arrow(seg_5, target_coords))
+        debug_objects.append(Arrow(seg2d_6, target_2d))
+        debug_objects.append(Plane(pl3d-[0,0,0.1], s=s2d))
+        debug_objects.append(Point(pl3d))
+        debug_objects.append(Point(target_pl3d + pl3d, c="black"))
+
+
     # 2d plane
-    debug_objects.append(Plane(pl3d-[0,0,0.1], s=s2d))
 
     # origin (s_5) on 2d plane
-    debug_objects.append(Point(pl3d))
 
     # target point on 2d plane
-    debug_objects.append(Point(target_pl3d + pl3d, c="black"))
     #debug_objects.append(Disc(target_pl3d + pl3d, r2=s_3.length, r1=s_3.length-5, c="red"))
 
     # show radius of points
@@ -541,9 +567,8 @@ def move_to_target(widget, event):
         #new_mag = np.asarray([mag[1], mag[0]])
         new_origin = mp_vec + (new_mag * n)
         new_origin3d = [new_origin[0], new_origin[1], 0]
-
-
         dist_new_prev = distance(new_origin, prev_origin)
+
 
         if abs(dist_new_prev - segment_radius) > 1:
             print("distance to prev is too different")
@@ -557,55 +582,37 @@ def move_to_target(widget, event):
         if bad_calculation:
             color = "red"
 
-        # apply
-        new_origins.append(new_origin)
-        #debug_objects.append(Point(mp_vec + pl2d, c="blue"))
-        #debug_objects.append(fast_disc(new_origin + pl2d, segment_radius, c="green"))
-        debug_objects.append(Point(new_origin + pl2d, c="black"))
-        debug_objects.append(Arrow2D(new_origin + pl2d, prev_origin + pl2d, c=color))
-        #debug_objects.append(Triangle(new_origin + pl2d, prev_origin + pl2d, mp_vec + pl2d, c="green"))
-        debug_objects.append(vedo.addons.Flagpost(str(seg.servo_num), new_origin + pl2d, new_origin3d + pl3d + [0,0,1]))
 
-        """
-        print("segment:", seg.servo_num,
-              "segment_radius:", segment_radius,
-              "dist_to_segment:", dist_to_segment,
-              "dist_origin_to_prev:", dist_origin_to_prev,
-              "total_length:", total_length,
-              "segment_min:", segment_min,
-              "equal_mp:", equal_mp,
-              "rem_dist:", rem_dist,
-              "mag:", mag,
-              "mp_vec:", mp_vec, 
-              "new_mag:", new_mag,
-              "n:", n, 
-              "o:", np.rad2deg(o), 
-              "r:", np.rad2deg(np.arccos(np.dot(new_mag, mag))),
-              "new_origin:", new_origin,
-              "prev_origin:", prev_origin,
-              "dist_new_prev:", dist_new_prev)
+        if create_objects:
+            #debug_objects.append(Point(mp_vec + pl2d, c="blue"))
+            #debug_objects.append(fast_disc(new_origin + pl2d, segment_radius, c="green"))
+            #debug_objects.append(Triangle(new_origin + pl2d, prev_origin + pl2d, mp_vec + pl2d, c="green"))
+            debug_objects.append(Point(new_origin + pl2d, c="black"))
+            debug_objects.append(Arrow2D(new_origin + pl2d, prev_origin + pl2d, c=color))
+            debug_objects.append(vedo.addons.Flagpost(str(seg.servo_num), new_origin + pl2d, new_origin3d + pl3d + [0,0,1]))
 
-        """
+        if showDebugObjects:
+            print("segment:", seg.servo_num,
+                "segment_radius:", segment_radius,
+                "dist_to_segment:", dist_to_segment,
+                "dist_origin_to_prev:", dist_origin_to_prev,
+                "total_length:", total_length,
+                "segment_min:", segment_min,
+                "equal_mp:", equal_mp,
+                "rem_dist:", rem_dist,
+                "mag:", mag,
+                "mp_vec:", mp_vec, 
+                "new_mag:", new_mag,
+                "n:", n, 
+                "o:", np.rad2deg(o), 
+                "r:", np.rad2deg(np.arccos(np.dot(new_mag, mag))),
+                "new_origin:", new_origin,
+                "prev_origin:", prev_origin,
+                "dist_new_prev:", dist_new_prev)
+            
 
         prev_origin = new_origin
-
-
-
-
-        # origin points
-        #seg_3d = seg.get_origin() # absolute, offset by seg_5
-        #seg_2d = map_to_xy(seg_3d, deg_6, o=seg_5) # relative to seg_5
-
-        # current p2p distance
-        #dist_cur_pl = distance(seg_2d, plo3d)
-        # current minimum distance
-        #dist_curmin_pl = dist_cur_pl - seg.length
-
-        #if remaining_segments_length < dist_curmin_pl:
-        #    print("will not reach target")
-        #    bad_calculation = True
-        #    break
-
+        new_origins.append(new_origin)
         remaining_segments.pop(0)
         
         
@@ -674,30 +681,10 @@ def move_to_target(widget, event):
             prevmag = mag
             prevrot = prevrot + rot
 
-    """
-    pos = utils.make3d(pos)
-    normal = np.asarray(normal, dtype=float)
-    axis = normal / np.linalg.norm(normal)
-    theta = np.arccos(axis[2])
-    phi = np.arctan2(axis[1], axis[0])
-
-    t = LinearTransform()
-    t.scale([s[0], s[1], 1])
-    t.rotate_y(np.rad2deg(theta))
-    t.rotate_z(np.rad2deg(phi))
-    t.translate(pos)
-    self.apply_transform(t)
-    
-    """
-
-    for obj in debug_objects:
-        obj.name = "line"
-        plt += obj
-
     # update servo slider positions
     update_servo_positions()
     #update_target_coords()
-    update_coord_text()
+    #update_coord_text()
 
 for x in range(0, 3):
     i = "XYZ"[x]
@@ -753,17 +740,24 @@ for s in segments:
     plt += s.mesh
 
 def loop_func(evt):
-    global plt, showLinesButton, updateFunc, showDebugObjects
+    global plt, showLinesButton, updateFunc, showDebugObjects, debug_objects, perst_objects
 
     plt.remove("line")
+    debug_objects = []
     showDebugObjects = showLinesButton.status_idx
 
     for seg in segments:
         seg.set_mesh_pos()
-        #if showLinesButton.status_idx:
-        plt.add(seg.get_line())
-    #update_target_coords()
+        seg.get_line()
+        
     updateFunc()
+
+    if showDebugObjects:
+        for x in debug_objects + perst_objects:
+            x.name = "line"
+
+        plt += debug_objects
+        plt += perst_objects
 
     plt.render()
 

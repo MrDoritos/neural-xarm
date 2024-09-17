@@ -321,13 +321,14 @@ def update_target_coords():
 
 # Set servo angles
 def update_servo_positions():
-    global plt, updateFunc, lastSegment, debug_objects
+    global plt, updateFunc, lastSegment, debug_objects, showDebugObjects
     #print("Updating servo positions")
     for servo in servos:
         servo.value = servo.segment.rotation
     update_coord_text()
-    show_radius(s_5)
-    plt += debug_objects
+    if showDebugObjects:
+        show_radius(s_5)
+        plt += debug_objects
     lastSegment = None
     updateFunc = update_servo_positions
 
@@ -450,7 +451,7 @@ def move_to_target(widget, event):
     # distance
     dist_tar_pl = distance(target_pl3d, plo3d)
 
-    print("distance:", dist_tar_pl)
+    #print("distance:", dist_tar_pl)
 
     # use law of cosines to find s_3 origin to origin distance
     # a^2 = b^2 + c^2 - 2bc * cos(A)
@@ -609,7 +610,7 @@ def move_to_target(widget, event):
     if bad_calculation:
         print("failed to calculate")
     else:
-        #prevrot = np.pi/2
+        prevrot = 0
         prevmag = [0,1]
         #prev = [0,1]
         prev = [0,0]
@@ -639,7 +640,11 @@ def move_to_target(widget, event):
                 dp = 1
                 dt = 0
             #rot = -np.arctan2(dt, dp)
-            rot = np.arctan2(mag[1], mag[0]) + (np.pi / 2)
+            diffmag = mag - prevmag
+            calcmag = dif + diffmag
+            calcmag = calcmag / np.linalg.norm(calcmag)
+            calcmag = mag
+            rot = -np.arctan2(calcmag[1], calcmag[0]) + (np.pi / 2) - prevrot
             """
                 dp_6 = np.dot(seg2d_6, target_2d)
                 dt_6 = np.linalg.det([seg2d_6, target_2d])
@@ -652,17 +657,18 @@ def move_to_target(widget, event):
             #.25 is 90
             # 0 - 360
             deg = ((np.rad2deg(rot)) / 180) * 0.5
-            print(deg)
+            #print(deg)
             servo.rotation = deg
             #segments[i + 2].rotation = deg
             #servos[i+1].value = deg
 
 
-            print("servo:", servo.servo_num, "dt:", dt, "dp:", dp, "_dp:", _dp, "prevmag:", prevmag, "mag:", mag, "rot:", np.rad2deg(rot), "deg:", deg * 360, "cur:", cur, "prev:", prev)
+            #print("servo:", servo.servo_num, "dt:", dt, "dp:", dp, "_dp:", _dp,"calcmag:", calcmag, "diffmag:", diffmag, "prevmag:", prevmag, "mag:", mag, "prevrot:", np.rad2deg(prevrot), "rot:", np.rad2deg(rot), "deg:", deg * 360, "cur:", cur, "prev:", prev)
             #prev = (prev + cur) / 2
             #prev = cur
             prev = cur
             prevmag = mag
+            prevrot = prevrot + rot
 
     """
     pos = utils.make3d(pos)

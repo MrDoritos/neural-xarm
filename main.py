@@ -110,30 +110,25 @@ class Segment:
         self.servo_num = servo_num
 
     def get_direction_matrix(self):
-        base_rotation = [x_axis, y_axis, z_axis]
+        base_rotation = np.asarray([x_axis, y_axis, z_axis])
 
         if self.parent is None:
             return base_rotation
         
         parent_rotation = self.parent.get_direction_matrix()
-        rotation = base_rotation
         segment_rotation = self.rotation * 360
-        
-
         final_rotation = parent_rotation
-        trans_axis_of_rotation = self.axis_of_rotation
+
+        rot_axis_of_rotation = sum([parent_rotation[i] * self.axis_of_rotation[i] for i in range(len(self.axis_of_rotation))])
+        rot_axis_of_rotation = rot_axis_of_rotation / numpy.linalg.norm(rot_axis_of_rotation)
 
         for i in range(0, 3):
-            if self.axis_of_rotation[i] != 0:
-                trans_axis_of_rotation = parent_rotation[i]
-
-        for i in range(0, 3):
-            if numpy.allclose(trans_axis_of_rotation, parent_rotation[i]):
+            if numpy.allclose(rot_axis_of_rotation, parent_rotation[i]):
                 continue
 
-            final_rotation[i] = rotate_vector_3d(parent_rotation[i], trans_axis_of_rotation, segment_rotation)
+            final_rotation[i] = rotate_vector_3d(parent_rotation[i], rot_axis_of_rotation, segment_rotation)
             final_rotation[i] = final_rotation[i] / numpy.linalg.norm(final_rotation[i])
-
+            
         return final_rotation
 
     def get_segment_vector(self):
@@ -305,6 +300,7 @@ def update_servo_positions():
         servo.value = servo.segment.rotation
     update_coord_text()
     show_radius(s_5)
+    show_radius(s_6)
     lastSegment = None
     updateFunc = update_servo_positions
 
@@ -322,9 +318,6 @@ def slider_rotation(widget, event):
     # update target coordinates
     update_target_coords()
 
-def get_intersection_point(p0, r0, p1, r1):
-    pass
-
 def fast_disc(pos, r, c="red", alpha=1):
     return Disc(pos, r2=r, r1=r-12, c=c, alpha=alpha)
 
@@ -333,7 +326,6 @@ def distance(p1, p2):
     for i in range(0, min(len(p1), len(p2))):
         sum += (p1[i] - p2[i]) ** 2
     return sqrt(sum)
-
 
 def move_to_target(widget, event):
     global s_3, s_4, s_5, s_6, s_base, plt, perst_objects, segments, showDebugObjects, create_objects
@@ -345,29 +337,16 @@ def move_to_target(widget, event):
     debug_objects = perst_objects
     debug_objects.clear()
 
-    # set servo positions of segments
-
-    #servo 5 to 3 distance
-    #servo 3 radius (length)
-
-
     # 6 rotation
     seg_6 = s_6.get_origin()
     seg2d_6 = np.array([seg_6[0], seg_6[1]])
     
-    dp_6 = np.dot(seg2d_6, target_2d)
-    dt_6 = np.linalg.det([seg2d_6, target_2d])
     dif_6 = target_2d - seg2d_6
-    #rot_6 = np.arctan2(dt_6, dp_6)
     atan2_6 = np.arctan2(dif_6[1], dif_6[0])
     norm_6 = atan2_6 / np.pi # -1 to 1
-    #rot_6 = (np.rad2deg(atan2_6) + 180) / 360 # 0-1
     rot_6 = (norm_6 + 1) / 2 # 0-1
-    #deg_6 = (-rot_6+0.5) * 360
     deg_6 = rot_6 * 360# + 180 # good for plane 0-360
-    #serv_6 = -(norm_6 / 2) + 1 #0-2
     serv_6 = rot_6 # 0-2
-    #serv_6 = 1 + (rot_6 + 0.5)
 
     """
     norm = atan2 / pi -> -1 to 1
@@ -382,25 +361,10 @@ def move_to_target(widget, event):
     -.370 -> .370 = 
     """
 
-    # 0-2 * 360 = 0-720
-    #0.66 -> 360 * .66 = 237.6, 1.33 -> 360 * 1.33 = 479.8
-
     s_6.rotation = serv_6
     print("atan2_6:", atan2_6, norm_6, "deg_6:", deg_6, "rot_6:", rot_6, "serv_6:", serv_6, serv_6 * 360)
 
-
-    # place point and s_5 on same plane / remove rotation
-    #debug_objects.append(Plane(s_5.get_origin(), s_5.get_direction_matrix()[1], s=(100,100)))
     seg_5 = s_5.get_origin()
-
-    # s5 to target and s6 rotation to target
-
-    # target point without rotation and translation
-    __target_pl = rotate_vector_3d(target_coords - seg_5, z_axis, deg_6)
-    #target_pl2d = target_pl[0:3:2]
-    #target_pl3d = [target_pl2d[0], target_pl2d[1], 0]
-
-
 
     # target point must be forward of servo 5. deg_6 is the rotation of servo 6 which completes this
     # we can successfully ignore 3d state beyond this point, all calculations can be done in 2d
@@ -414,7 +378,6 @@ def move_to_target(widget, event):
 
     # rotated point in world
     if create_objects:
-        debug_objects.append(Point(__target_pl + seg_5, c="blue"))
         debug_objects.append(Point(target_coords, c="black"))
         debug_objects.append(Arrow(seg_5, target_coords))
         debug_objects.append(Arrow(seg2d_6, target_2d))
@@ -422,27 +385,6 @@ def move_to_target(widget, event):
         debug_objects.append(Point(pl3d))
         debug_objects.append(Point(target_pl3d + pl3d, c="black"))
 
-
-    # 2d plane
-
-    # origin (s_5) on 2d plane
-
-    # target point on 2d plane
-    #debug_objects.append(Disc(target_pl3d + pl3d, r2=s_3.length, r1=s_3.length-5, c="red"))
-
-    # show radius of points
-        # target point with s_3 radius
-    #debug_objects.append(fast_disc(target_pl3d + pl3d, s_3.length, c="red"))
-        # servo 5 origin with s_5 radius
-    #debug_objects.append(fast_disc(pl3d, s_5.length, c="red"))
-        
-    # distance
-    dist_tar_pl = distance(target_pl3d, plo3d)
-
-    #print("distance:", dist_tar_pl)
-
-    # use law of cosines to find s_3 origin to origin distance
-    # a^2 = b^2 + c^2 - 2bc * cos(A)
     remaining_segments = segments[2:]
     remaining_segments.reverse()
     prev_origin = target_pl2d
@@ -477,7 +419,8 @@ def move_to_target(widget, event):
 
         rem_min = -segment_radius/2
         rem_retract = 0
-        rem_extend = segment_radius*0.75
+        rem_extend = segment_radius*0.5#*0.75
+        rem_ex2 = rem_extend * 1.5
         rem_max = segment_radius*.95
 
         if rem_dist > rem_max:
@@ -495,15 +438,24 @@ def move_to_target(widget, event):
             if rem_dist > rem_max:
                 print("not enough overlap")
                 color = "black"
-                rem_dist = rem_max
+                #rem_dist = rem_max
 
             # we are very close to center
-            if rem_dist < rem_retract and segment_radius > dist_origin_to_prev:
+            if segment_radius > dist_origin_to_prev: # rem_dist < rem_retract and
                 print("close to origin point allow all orientations to solve")
                 color = "red"
-                equal_mp = dist_origin_to_prev - rem_dist
+                v = rem_extend - (segment_radius - dist_origin_to_prev)
+                equal_mp = dist_origin_to_prev - v#rem_dist
                 rem_dist = dist_origin_to_prev - equal_mp
             
+            # high left over length and prevent all solutions
+            elif rem_dist < rem_extend and total_length > dist_origin_to_prev:
+                print("maintain good center of gravity")
+                color = "white"
+                equal_mp = dist_origin_to_prev - rem_extend
+                rem_dist = dist_origin_to_prev - equal_mp
+
+            """
             # too much leftover length, limit pos to radius
             elif rem_dist < rem_retract and total_length > dist_origin_to_prev:
                 print("too much leftover length, allow more orientations to reduce length")
@@ -511,41 +463,44 @@ def move_to_target(widget, event):
                 equal_mp = dist_origin_to_prev - rem_retract
                 rem_dist = dist_origin_to_prev - equal_mp
 
-            elif rem_dist < rem_extend and total_length > dist_origin_to_prev:
-                print("maintain good center of gravity")
-                color = "white"
-                equal_mp = dist_origin_to_prev - rem_extend
+            elif rem_dist < rem_ex2 and total_length > dist_origin_to_prev:
+                print("too much leftover length, limit pos to radius")
+                color = "yellow"
+                r = rem_ex2 - rem_extend
+                v = ((rem_dist - r) / r) ** 1.1
+                equal_mp = dist_origin_to_prev - (v ** rem_ex2)
                 rem_dist = dist_origin_to_prev - equal_mp
-
+            """
 
         # vector for mp calc
         mp_vec = mag * equal_mp
         n = np.sqrt((segment_radius ** 2) - (rem_dist ** 2))
-        o = np.arccos(rem_dist / segment_radius)
         o = np.arctan2(mag[1], mag[0]) - (np.pi / 2)
         new_mag = np.asarray([np.cos(o), np.sin(o)])
-        #new_mag = np.asarray([mag[1], mag[0]])
         new_origin = mp_vec + (new_mag * n)
         new_origin3d = [new_origin[0], new_origin[1], 0]
         dist_new_prev = distance(new_origin, prev_origin)
 
+        if bad_calculation:
+            color = "red"
 
-        if abs(dist_new_prev - segment_radius) > 1:
+        tolerable_distance = 10
+
+        if abs(dist_new_prev - segment_radius) > tolerable_distance:
             print("distance to prev is too different")
             color = "purple"
             bad_calculation = True
 
-        if len(remaining_segments) < 1 and distance(new_origin, target_pl2d) > 1:
+        if len(remaining_segments) < 1 and distance(new_origin, target_pl2d) > tolerable_distance:
             print("distance to target is too far")
+            color = "cyan"
             bad_calculation = True
 
-        if bad_calculation:
-            color = "red"
 
 
         if create_objects:
-            #debug_objects.append(Point(mp_vec + pl2d, c="blue"))
-            #debug_objects.append(fast_disc(new_origin + pl2d, segment_radius, c="green"))
+            debug_objects.append(Point(mp_vec + pl2d, c="blue"))
+            debug_objects.append(fast_disc(new_origin + pl2d, segment_radius, c="green"))
             #debug_objects.append(Triangle(new_origin + pl2d, prev_origin + pl2d, mp_vec + pl2d, c="green"))
             debug_objects.append(Point(new_origin + pl2d, c="black"))
             debug_objects.append(Arrow2D(new_origin + pl2d, prev_origin + pl2d, c=color))
@@ -581,70 +536,32 @@ def move_to_target(widget, event):
     else:
         prevrot = 0
         prevmag = [0,1]
-        #prev = [0,1]
         prev = [0,0]
         new_origins.reverse()
         new_origins.pop(0)
         new_origins.append(target_pl2d)
         for i in range(len(new_origins)):
             cur = new_origins[i]
-            #cur = cur / np.linalg.norm(cur)
-            #cur = cur - prev
 
             dif = cur - prev
             mag = dif / np.linalg.norm(dif)
-            #cur = cur + prev
-            #cur[0] = -cur[0]
-            servo = segments[i + 2]
-            #_dp = np.dot(prev, cur)
-            #dt = np.linalg.det([prev, cur])
-            dt = np.linalg.det([[0,0],mag])
-            _dp = np.dot(prevmag, mag)
-            dp = _dp
             
-            #if i == 0:
-            #    dp = np.dot(prev, -cur)
-            #rot = np.arccos(dp)# - np.arctan2(prev[1], prev[0])
-            if i < 0:
-                dp = 1
-                dt = 0
-            #rot = -np.arctan2(dt, dp)
-            diffmag = mag - prevmag
-            calcmag = dif + diffmag
-            calcmag = calcmag / np.linalg.norm(calcmag)
+            servo = segments[i + 2]
             calcmag = mag
-            #rot = -np.arctan2(calcmag[1], calcmag[0]) + (np.pi / 2) - prevrot
-            #rot = np.arctan2(calcmag[1], calcmag[0]) - (np.pi / 2) - prevrot
+            
             rot = np.arctan2(calcmag[0], calcmag[1]) - prevrot
-            """
-                dp_6 = np.dot(seg2d_6, target_2d)
-                dt_6 = np.linalg.det([seg2d_6, target_2d])
-                rot_6 = np.arctan2(dt_6, dp_6)
-                rot_6 = (np.rad2deg(rot_6) + 180) / 360
-            """
-            #if i == 0:
-            #    rot = np.pi - rot
-            #deg = (np.rad2deg(rot) + 180) / 180 # + (np.pi / 2)
-            #.25 is 90
-            # 0 - 360
+            
             deg = ((np.rad2deg(rot)) / 180) * 0.5 + 1
-            #print(deg)
             servo.rotation = deg
-            #segments[i + 2].rotation = deg
-            #servos[i+1].value = deg
 
             if showDebugObjects:
-                print("servo:", servo.servo_num, "dt:", dt, "dp:", dp, "_dp:", _dp,"calcmag:", calcmag, "diffmag:", diffmag, "prevmag:", prevmag, "mag:", mag, "prevrot:", np.rad2deg(prevrot), "rot:", np.rad2deg(rot), "deg:", deg * 360, deg, "cur:", cur, "prev:", prev)
-            #prev = (prev + cur) / 2
-            #prev = cur
+                print("servo:", servo.servo_num, "dt:", np.linalg.det([[0,0],mag]), "dp:", np.dot(prevmag, mag),"calcmag:", calcmag, "diffmag:", mag-prevmag, "prevmag:", prevmag, "mag:", mag, "prevrot:", np.rad2deg(prevrot), "rot:", np.rad2deg(rot), "deg:", deg * 360, deg, "cur:", cur, "prev:", prev)
+                
             prev = cur
             prevmag = mag
             prevrot = prevrot + rot
 
-    # update servo slider positions
     update_servo_positions()
-    #update_target_coords()
-    #update_coord_text()
 
 for x in range(0, 3):
     i = "XYZ"[x]
@@ -735,7 +652,13 @@ def handle_input():
     change = False
     clock.tick(elapsed_time)
     for event in pygame.event.get():
-        print(event)
+        if 'device_index' in event.dict and 'guid' in event.dict:
+            if any([event.guid == x.get_guid() for x in joysticks]):
+                continue
+
+            j = pygame.joystick.Joystick(event.device_index)
+            j.init()
+            joysticks.append(j)
 
         if 'joy' in event.dict and 'axis' in event.dict and event.axis in [2,5,3]:
             if event.axis == 2:

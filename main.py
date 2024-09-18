@@ -1,5 +1,7 @@
 #!/bin/python3
 
+import os
+os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = 'hide'
 from xml.dom.minidom import Notation
 from matplotlib.widgets import SliderBase
 import vedo
@@ -13,6 +15,13 @@ import importlib
 xarm = importlib.import_module('xarm_control')
 
 plt = Plotter(title='xArm')
+
+x_axis = vector(1, 0, 0)
+y_axis = vector(0, 1, 0)
+z_axis = vector(0, 0, 1)
+z_direction = z_axis
+y_direction = y_axis
+x_direction = x_axis
 
 """
 Not mine, taken from https://stackoverflow.com/questions/6802577/python-rotation-of-3d-vector
@@ -50,12 +59,31 @@ def rotate_vector_3d(vector, axis, angle_degrees):
     
     return rotated_vector
 
-x_axis = vector(1, 0, 0)
-y_axis = vector(0, 1, 0)
-z_axis = vector(0, 0, 1)
-z_direction = z_axis
-y_direction = y_axis
-x_direction = x_axis
+def map_to_xy(pos, r=0, a=-z_axis, o=[0,0,0], t=[0,0,0]):
+    """
+    Map a 3D point on to a 2D plane
+
+    Arguments:
+        pos : vector
+            point to map
+        r : degrees
+            rotation of point on axis
+        a : vector
+            axis of rotation
+        o : vector
+            origin to remove from pos before map
+        t : vector
+            translation to add to point after map
+    """
+    mapped = rotate_vector_3d(pos - o, a, r)
+    npos = np.asarray([mapped[0], mapped[2], 0])
+    return npos + t
+
+class DirMatrix:
+    def __init__(self, x, y, z):
+        self.x = x
+        self.y = y
+        self.z = z
 
 showDebugObjects = False
 updateFunc = None
@@ -63,6 +91,10 @@ lastSegment = None
 debug_objects = []
 perst_objects = []
 create_objects = True
+use_robot = False
+use_joystick = True
+elapsed_time = 0
+last_frame = 0
 
 class Segment:
     def __init__(self, parent, axis_of_rotation, direction, rotation, length, mesh, servo_num):
@@ -108,7 +140,6 @@ class Segment:
         if self.servo_num == 7:
             return [2.54,0,self.length]
         
-
         return self.get_direction_matrix()[2] * self.length
 
     def get_origin(self):
@@ -128,19 +159,6 @@ class Segment:
         if not create_objects:
             return
 
-        #initialLine = Line(self.origin, self.initial_direction * self.length + self.origin, c="red")
-        #rotationLine = Line(self.origin, self.axis_of_rotation * self.length * 0.5 + self.origin, c="blue")
-        #angleLine = Box(pos=self.origin, size=(50,100,50), c="pink", alpha=0.5)
-        #angleLine.rotate(axis=self.axis_of_rotation, angle=self.angleth, rad=True)
-        #upLine = Line(self.origin, self.up_axis() * 50 * 2.5 + self.origin, c="pink")
-        #cross = np.cross(self.initial_direction, self.direction)
-        #angleLine.reorient(self.initial_direction, cross, rotation=-self.angleth, rad=True)
-
-
-        #dirLine = Line(self.origin, self.current_axis() * self.length * 2 + self.origin, c="black")
-        #crossLine = Line(self.origin, cross * self.length + self.origin, c="green")
-        #dirPlane = Plane(self.origin, self.direction, s=(50,50), alpha=0.5, c="gray")
-        
         rotVec = self.dir_matrix
         xVec = Line(self.origin, rotVec[0] * 50 + self.origin, c="red", lw=3)
         yVec = Line(self.origin, rotVec[1] * 50 + self.origin, c="blue", lw=3)
@@ -148,20 +166,6 @@ class Segment:
         debug_objects.append(xVec)
         debug_objects.append(yVec)
         debug_objects.append(zVec)
-        
-        #output.append(initialLine)
-        #output.append(rotationLine)
-        #output.append(angleLine)
-        #output.append(upLine)
-        #output.append(dirLine)
-        #output.append(crossLine)
-        #output.append(dirPlane)
-
-
-        #for x in output:
-        #    x.name = "line"
-
-        #return output
 
     def set_mesh_pos(self):  
         self.origin = self.get_origin()
@@ -171,44 +175,13 @@ class Segment:
 
         if dirMatrixChange:
             LT = vedo.LinearTransform()
-            rot_x = np.arccos(np.dot(self.dir_matrix[0], x_axis))
-            rot_y = np.arccos(np.dot(self.dir_matrix[2], z_axis))
-            #rot_z = np.arccos(np.dot(self.dir_matrix[1], y_axis))
-            #rot_z = np.arccos(self.dir_matrix[1][0]) + np.arcsin(self.dir_matrix[1][1])
-            x = self.dir_matrix[1][0]
-            y = self.dir_matrix[1][1]
-            p = np.sqrt(x**2 + y**2)
-            rot_z = np.arccos(x / p)
 
-            dot_y = np.dot(self.dir_matrix[2], x_axis)
-            dot_y2 = np.dot(self.dir_matrix[2], z_axis)
-            dot_z = np.dot(self.dir_matrix[1], x_axis)
-            dot_z2 = np.dot(self.dir_matrix[1], y_axis)
-            flipY = np.dot(self.dir_matrix[0], z_axis) < 0
-            flipZ = dot_z2 < 0
+            rot_y = np.arccos(np.dot(self.dir_matrix[2][2], z_axis[2]))
+            rot_z = np.arctan2(self.dir_matrix[1][1], self.dir_matrix[1][0]) + (np.pi/2)
+            LT.T.RotateWXYZ(np.rad2deg(rot_z), z_axis)
+            LT.T.RotateWXYZ(np.rad2deg(rot_y), np.cross(z_axis, self.dir_matrix[2]))
 
-            rot_z = np.arccos(dot_z) + (np.pi/2)
-
-            if np.dot(self.dir_matrix[0], z_axis) < 0:
-                #rot_y = -rot_y
-                rot_y = ((2*np.pi)-rot_y)
-                #LT.T.RotateWXYZ(np.pi, y_axis)
-                #LT.T.RotateWXYZ(np.rad2deg(rot_y), y_axis)
-            else:
-                #LT.T.RotateWXYZ(np.rad2deg(rot_y), y_axis)
-                pass
-            #LT.T.RotateWXYZ(-self.rotation * 360, y_axis)
-            LT.T.RotateWXYZ(np.rad2deg(rot_y), y_axis)
-
-
-            if dot_z2 < 0:
-                rot_z = (np.pi-rot_z)
-                LT.T.RotateWXYZ(np.pi, z_axis)
-                LT.T.RotateWXYZ(np.rad2deg(rot_z), z_axis)
-            else:
-                LT.T.RotateWXYZ(np.rad2deg(rot_z), z_axis)
-
-            #print("rot_x:", np.rad2deg(rot_x), "rot_y:", np.rad2deg(rot_y), "rot_z:", np.rad2deg(rot_z))
+            #print("rot_y:", np.rad2deg(rot_y), "rot_z:", np.rad2deg(rot_z))
             #print("dir_matrix:", self.dir_matrix)
             #print("dot y:", dot_y, "dot y2:", dot_y2)
             #print("dot z:", dot_z, "dot z2:", dot_z2)
@@ -278,6 +251,7 @@ def get_slider_coords():
 
 showLinesButton = plt.add_button(fnc=button_showLines, pos=(0.85, 0.95), states=["Show Lines", "Hide Lines"], c=["green", "red"])
 targetCoordsText = vedo.Text2D("", pos=(0.05, 0.95), s=0.5, c="black")
+fpsText = vedo.Text2D("", pos=(0.05, 1), s=0.5, c="black")
 
 axes_box = Box(pos=(0,0,250), length=500, width=500, height=500)
 
@@ -337,6 +311,7 @@ def update_servo_positions():
 updateFunc = update_target_coords
 
 plt += targetCoordsText
+plt += fpsText
 
 def slider_rotation(widget, event):
     global lastSegment
@@ -359,25 +334,6 @@ def distance(p1, p2):
         sum += (p1[i] - p2[i]) ** 2
     return sqrt(sum)
 
-def map_to_xy(pos, r=0, a=-z_axis, o=[0,0,0], t=[0,0,0]):
-    """
-    Map a 3D point on to a 2D plane
-
-    Arguments:
-        pos : vector
-            point to map
-        r : degrees
-            rotation of point on axis
-        a : vector
-            axis of rotation
-        o : vector
-            origin to remove from pos before map
-        t : vector
-            translation to add to point after map
-    """
-    mapped = rotate_vector_3d(pos - o, a, r)
-    npos = np.asarray([mapped[0], mapped[2], 0])
-    return npos + t
 
 def move_to_target(widget, event):
     global s_3, s_4, s_5, s_6, s_base, plt, perst_objects, segments, showDebugObjects, create_objects
@@ -760,11 +716,24 @@ robot = None
 last_send = 0
 send_interval = 500
 
-def handle_pygame_input():
+def handle_chrono():
+    global last_frame, elapsed_time
+
+    now = pygame.time.get_ticks()
+    elapsed_time = now - last_frame
+    last_frame = now
+
+    fpsText.text(str(1000 / elapsed_time) + " FPS")
+
+def handle_input():
     global joysticks, clock, coords, last_axis_values, robot, last_send, gripper, wrist
+    global elapsed_time
+
+    if not use_joystick:
+        return
 
     change = False
-    clock.tick(60)
+    clock.tick(elapsed_time)
     for event in pygame.event.get():
         print(event)
 
@@ -820,6 +789,10 @@ def handle_pygame_input():
     if change:
         move_to_target(None, None)
 
+def handle_output():
+    if not use_robot:
+        return
+    
     if last_send + send_interval < pygame.time.get_ticks():
         #robot.move_to(get_target_coords())
         axis = [0, 0, 0, 0, wrist, gripper]
@@ -842,11 +815,10 @@ def handle_pygame_input():
 
         if all(np.isfinite(axis)):
             print("sending:", axis)
-            robot.move_all(axis, send_interval)
+            if use_robot:
+                robot.move_all(axis, send_interval)
 
         last_send = pygame.time.get_ticks()
-
-
 
 def loop_func(evt):
     global plt, showLinesButton, updateFunc, showDebugObjects, debug_objects, perst_objects
@@ -855,7 +827,11 @@ def loop_func(evt):
     debug_objects = []
     showDebugObjects = showLinesButton.status_idx
 
-    handle_pygame_input()
+    handle_chrono()
+
+    handle_input()
+
+    handle_output()
 
     for seg in segments:
         seg.set_mesh_pos()
@@ -872,21 +848,26 @@ def loop_func(evt):
 
     plt.render()
 
-pygame.init()
-robot = xarm.SafeXArm()
+def init():
+    if use_robot:
+        robot = xarm.SafeXArm()
 
-# for al the connected joysticks
-for i in range(0, pygame.joystick.get_count()):
-    # create an Joystick object in our list
-    joysticks.append(pygame.joystick.Joystick(i))
-    # initialize the appended joystick (-1 means last array item)
-    joysticks[-1].init()
-    # print a statement telling what the name of the controller is
-    print ("Detected joystick "),joysticks[-1].get_name(),"'"
+    if use_joystick:
+        pygame.init()
+        for i in range(0, pygame.joystick.get_count()):
+            joysticks.append(pygame.joystick.Joystick(i))
+            joysticks[-1].init()
+            print ("Detected joystick "),joysticks[-1].get_name(),"'"
 
-plt.add_callback("timer", loop_func)
-plt.timer_callback("start", dt=1)
-#plt.show(axes=3).close()
-plt.show(axes=Axes(axes_box), size=(700,700)).close()
+def run():
+    init()
 
-robot.rest()
+    plt.add_callback("timer", loop_func)
+    plt.timer_callback("start", dt=1)
+    #plt.show(axes=3).close()
+    plt.show(axes=Axes(axes_box), size=(700,700)).close()
+
+    if robot and use_robot:
+        robot.rest()
+
+run()

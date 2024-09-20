@@ -91,7 +91,7 @@ lastSegment = None
 debug_objects = []
 perst_objects = []
 create_objects = True
-use_robot = False
+use_robot = True
 use_joystick = True
 elapsed_time = 0
 last_frame = 0
@@ -420,7 +420,7 @@ def move_to_target(widget, event):
         rem_min = -segment_radius/2
         rem_retract = 0
         rem_extend = segment_radius*0.5#*0.75
-        rem_ex2 = rem_extend * 1.5
+        rem_ex2 = rem_extend * 1.75
         rem_max = segment_radius*.95
 
         if rem_dist > rem_max:
@@ -430,15 +430,8 @@ def move_to_target(widget, event):
             #rem_dist = rem_max
 
         if not skip_optim:
-            if rem_dist < rem_min:
-                print("too much overlap")
-                color = "gray"
-                rem_dist = rem_min
-
-            if rem_dist > rem_max:
-                print("not enough overlap")
-                color = "black"
-                #rem_dist = rem_max
+            # rem_dist -> -segment_radius - furthest from origin
+            # rem_dist -> segment_radius - closest to origin
 
             # we are very close to center
             if segment_radius > dist_origin_to_prev: # rem_dist < rem_retract and
@@ -446,31 +439,44 @@ def move_to_target(widget, event):
                 color = "red"
                 v = rem_extend - (segment_radius - dist_origin_to_prev)
                 equal_mp = dist_origin_to_prev - v#rem_dist
-                rem_dist = dist_origin_to_prev - equal_mp
             
             # high left over length and prevent all solutions
             elif rem_dist < rem_extend and total_length > dist_origin_to_prev:
                 print("maintain good center of gravity")
                 color = "white"
                 equal_mp = dist_origin_to_prev - rem_extend
-                rem_dist = dist_origin_to_prev - equal_mp
 
-            """
             # too much leftover length, limit pos to radius
             elif rem_dist < rem_retract and total_length > dist_origin_to_prev:
                 print("too much leftover length, allow more orientations to reduce length")
                 color = "orange"
                 equal_mp = dist_origin_to_prev - rem_retract
-                rem_dist = dist_origin_to_prev - equal_mp
 
-            elif rem_dist < rem_ex2 and total_length > dist_origin_to_prev:
+            elif rem_dist < rem_ex2 and rem_dist >= rem_extend and total_length > dist_origin_to_prev:
                 print("too much leftover length, limit pos to radius")
                 color = "yellow"
-                r = rem_ex2 - rem_extend
-                v = ((rem_dist - r) / r) ** 1.1
-                equal_mp = dist_origin_to_prev - (v ** rem_ex2)
+                r = rem_ex2 - rem_extend # 0 -> (rem_ex2 - rem_extend) (0 -> .75 radius)
+                r = (rem_dist - rem_extend) / r
+                v = r / 2
+                # 0 -> white
+                # 0.5 -> green
+                if (v > 0.4):
+                    v -= (v - 0.38)
+                equal_mp = dist_origin_to_prev - (v * segment_radius + rem_extend)
+
+
+            if rem_dist < rem_min:
+                print("too much overlap")
+                color = "gray"
+                rem_dist = rem_min
+            elif rem_dist > rem_max:
+                print("not enough overlap")
+                color = "black"
+            else:
                 rem_dist = dist_origin_to_prev - equal_mp
-            """
+
+
+            debug_objects.append(Text2D(str.format("rem_dist: {0:.2f}, equal_mp: {0:.2f}", rem_dist, equal_mp), pos=(0.5, 0.5), s=0.5, c="black"))
 
         # vector for mp calc
         mp_vec = mag * equal_mp
@@ -713,6 +719,8 @@ def handle_input():
         move_to_target(None, None)
 
 def handle_output():
+    global last_send
+
     if not use_robot:
         return
     
@@ -772,6 +780,7 @@ def loop_func(evt):
     plt.render()
 
 def init():
+    global robot
     if use_robot:
         robot = xarm.SafeXArm()
 

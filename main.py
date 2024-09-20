@@ -394,7 +394,8 @@ def move_to_target(widget, event):
 
     while True:
         if not remaining_segments or len(remaining_segments) < 1:
-            print("no more segments")
+            if showDebugObjects:
+                print("no more segments")
             break
         
         seg = remaining_segments[0]
@@ -410,7 +411,8 @@ def move_to_target(widget, event):
         color = "green"
 
         if len(remaining_segments) < 3:
-            print("2 or less segments left")
+            if showDebugObjects:
+                print("2 or less segments left")
             skip_optim = True
         
         equal_mp = ((dist_origin_to_prev ** 2) - (segment_radius ** 2) + (dist_to_segment ** 2)) \
@@ -424,9 +426,10 @@ def move_to_target(widget, event):
         rem_max = segment_radius*.95
 
         if rem_dist > rem_max:
-            print("not enough overlap")
+            if showDebugObjects:
+                print("not enough overlap")
+                print("rem_dist:", rem_dist, "rem_max:", rem_max)
             color = "black"
-            print("rem_dist:", rem_dist, "rem_max:", rem_max)
             #rem_dist = rem_max
 
         if not skip_optim:
@@ -435,25 +438,29 @@ def move_to_target(widget, event):
 
             # we are very close to center
             if segment_radius > dist_origin_to_prev: # rem_dist < rem_retract and
-                print("close to origin point allow all orientations to solve")
+                if showDebugObjects:
+                    print("close to origin point allow all orientations to solve")
                 color = "red"
                 v = rem_extend - (segment_radius - dist_origin_to_prev)
                 equal_mp = dist_origin_to_prev - v#rem_dist
             
             # high left over length and prevent all solutions
             elif rem_dist < rem_extend and total_length > dist_origin_to_prev:
-                print("maintain good center of gravity")
+                if showDebugObjects:
+                    print("maintain good center of gravity")
                 color = "white"
                 equal_mp = dist_origin_to_prev - rem_extend
 
             # too much leftover length, limit pos to radius
             elif rem_dist < rem_retract and total_length > dist_origin_to_prev:
-                print("too much leftover length, allow more orientations to reduce length")
+                if showDebugObjects:
+                    print("too much leftover length, allow more orientations to reduce length")
                 color = "orange"
                 equal_mp = dist_origin_to_prev - rem_retract
 
             elif rem_dist < rem_ex2 and rem_dist >= rem_extend and total_length > dist_origin_to_prev:
-                print("too much leftover length, limit pos to radius")
+                if showDebugObjects:
+                    print("too much leftover length, limit pos to radius")
                 color = "yellow"
                 r = rem_ex2 - rem_extend # 0 -> (rem_ex2 - rem_extend) (0 -> .75 radius)
                 r = (rem_dist - rem_extend) / r
@@ -466,11 +473,13 @@ def move_to_target(widget, event):
 
 
             if rem_dist < rem_min:
-                print("too much overlap")
+                if showDebugObjects:
+                    print("too much overlap")
                 color = "gray"
                 rem_dist = rem_min
             elif rem_dist > rem_max:
-                print("not enough overlap")
+                if showDebugObjects:
+                    print("not enough overlap")
                 color = "black"
             else:
                 rem_dist = dist_origin_to_prev - equal_mp
@@ -493,12 +502,14 @@ def move_to_target(widget, event):
         tolerable_distance = 10
 
         if abs(dist_new_prev - segment_radius) > tolerable_distance:
-            print("distance to prev is too different")
+            if showDebugObjects:
+                    print("distance to prev is too different")
             color = "purple"
             bad_calculation = True
 
         if len(remaining_segments) < 1 and distance(new_origin, target_pl2d) > tolerable_distance:
-            print("distance to target is too far")
+            if showDebugObjects:
+                    print("distance to target is too far")
             color = "cyan"
             bad_calculation = True
 
@@ -538,7 +549,8 @@ def move_to_target(widget, event):
         
         
     if bad_calculation:
-        print("failed to calculate")
+        if showDebugObjects:
+            print("failed to calculate")
     else:
         prevrot = 0
         prevmag = [0,1]
@@ -635,9 +647,10 @@ gripper = 0
 last_wg = [0,0]
 mirror_axis = [2]
 last_axis_values = [0,0,0]
+last_move_values = [0,0,0,0,0,0]
 robot = None
 last_send = 0
-send_interval = 500
+send_interval = 50
 
 def handle_chrono():
     global last_frame, elapsed_time
@@ -719,7 +732,7 @@ def handle_input():
         move_to_target(None, None)
 
 def handle_output():
-    global last_send
+    global last_send, last_move_values
 
     if not use_robot:
         return
@@ -728,6 +741,12 @@ def handle_output():
         #robot.move_to(get_target_coords())
         axis = [0, 0, 0, 0, wrist, gripper]
         flip = [1, 1, -1, 1, 1, 1]
+        elapsed = pygame.time.get_ticks() - last_send
+        if elapsed > 1000:
+            elapsed = 1000
+        move_per_second = 100
+        norm_per_second = move_per_second / (100 * 1)
+        max_move = (elapsed / 1000) * norm_per_second
 
         for i in range(0, 4):
             val = segments[i + 1].rotation * flip[i]
@@ -742,14 +761,25 @@ def handle_output():
             if mod < 0:
                 mod += 360
 
-            axis[i] = ((mod / 180) - 1) * mult
+            axis_val = ((mod / 180) - 1) * mult
+            
+            if abs(axis_val) > 1.25 and i == 0:
+                axis_val = (axis_val / abs(axis_val)) * 1.25
 
-        if all(np.isfinite(axis)):
+            diff = axis_val - last_move_values[i]
+            dist = sqrt(diff ** 2)
+            if dist > max_move and i == 0:
+                new_val = last_move_values[i] + (np.sign(diff) * max_move)
+                print("clamp axis:", i, "axis_val:", axis_val, "last_move_value", last_move_values[i], "new_val:", new_val, "max_move:", max_move, "diff:", diff, "dist:", dist)
+                axis_val = new_val
+
+            axis[i] = axis_val
+
+        if all(np.isfinite(axis)) and use_robot and not np.allclose(axis, last_move_values):
             print("sending:", axis)
-            if use_robot:
-                robot.move_all(axis, send_interval)
-
-        last_send = pygame.time.get_ticks()
+            robot.move_all(axis, send_interval)
+            last_move_values = axis
+            last_send = pygame.time.get_ticks()
 
 def loop_func(evt):
     global plt, showLinesButton, updateFunc, showDebugObjects, debug_objects, perst_objects
@@ -783,6 +813,7 @@ def init():
     global robot
     if use_robot:
         robot = xarm.SafeXArm()
+        robot.move_all(last_move_values, 2000)
 
     if use_joystick:
         pygame.init()

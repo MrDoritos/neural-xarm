@@ -152,9 +152,9 @@ class SafeXArm:
         # [-1, 1] => [0, 1]
         pos = (pos + 1) / 2
         target = self.min_pos + pos * (self.max_pos - self.min_pos)
-        print('src',target)
+        #print('src',target)
         target = np.flip(target, 0).astype(np.uint16)
-        print('flip', target)
+        #print('flip', target)
         # TODO: compute time needed based on last position
         # Compute time needed to move each joint to target given max_speed
         #cur_pos = self.arm.read_pos()

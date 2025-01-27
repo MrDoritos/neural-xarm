@@ -20,7 +20,9 @@ struct shader_t;
 int width = 1600, height = 900;
 float lastTime;
 float mouseSensitivity = 0.05f;
+float preciseSpeed = 0.1f;
 float movementSpeed = 10.0f;
+float rapidSpeed = 100.0f;
 GLFWwindow* window;
 GLuint program;
 GLint uni_projection, uni_model, uni_norm, uni_view;
@@ -53,7 +55,7 @@ struct camera_t {
 
     void mouseMove(GLFWwindow *window, double x, double y) {
         double dx = x - last_mouse[0];
-        double dy = y - last_mouse[1];
+        double dy = last_mouse[1] - y;
 
         last_mouse[0] = x;
         last_mouse[1] = y;
@@ -64,7 +66,7 @@ struct camera_t {
         }
 
         yaw += mouseSensitivity * dx;
-        pitch -= mouseSensitivity * dy;
+        pitch += mouseSensitivity * dy;
 
         pitch = std::max(std::min(pitch, 89.9f), -89.9f);
 
@@ -80,28 +82,42 @@ struct camera_t {
     }
 
     void keyboard(GLFWwindow *window, float deltaTime) {
+        float movementFactor = movementSpeed;
+        bool precise = (glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS);
+        bool rapid = (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS);
+
+        if (rapid && precise) {
+            
+        } else
+        if (rapid) {
+            movementFactor = rapidSpeed;
+        } else
+        if (precise) {
+            movementFactor = preciseSpeed;
+        }
+
         if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
-            position += front * deltaTime * movementSpeed;
+            position += front * deltaTime * movementFactor;
         }
 
         if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
-            position -= front * deltaTime * movementSpeed;
+            position -= front * deltaTime * movementFactor;
         }
 
         if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) {
-            position -= right  * deltaTime * movementSpeed;
+            position -= right  * deltaTime * movementFactor;
         }
 
         if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) {
-            position += right * deltaTime * movementSpeed;
+            position += right * deltaTime * movementFactor;
         }
 
         if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) {
-            position += up * deltaTime * movementSpeed;
+            position += up * deltaTime * movementFactor;
         }
 
         if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) {
-            position -= up * deltaTime * movementSpeed;
+            position -= up * deltaTime * movementFactor;
         }
 
         //printf("Position: x: %f, y: %f, z: %f\n", position.x, position.y, position.z);

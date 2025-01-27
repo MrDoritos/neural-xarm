@@ -871,12 +871,12 @@ struct kinematics_t {
 
 void init() {
     camera = new camera_t();
-    textTexture = new texture_t("text.png");
+    textTexture = new texture_t("assets/text.png");
 
-    mainVertexShader = new shader_t("shader/vertex.glsl", GL_VERTEX_SHADER);
-    mainFragmentShader = new shader_t("shader/fragment.glsl", GL_FRAGMENT_SHADER);
-    textVertexShader = new shader_t("shader/text_vertex_shader.glsl", GL_VERTEX_SHADER);
-    textFragmentShader = new shader_t("shader/text_fragment_shader.glsl", GL_FRAGMENT_SHADER);
+    mainVertexShader = new shader_t("shaders/vertex.glsl", GL_VERTEX_SHADER);
+    mainFragmentShader = new shader_t("shaders/fragment.glsl", GL_FRAGMENT_SHADER);
+    textVertexShader = new shader_t("shaders/text_vertex_shader.glsl", GL_VERTEX_SHADER);
+    textFragmentShader = new shader_t("shaders/text_fragment_shader.glsl", GL_FRAGMENT_SHADER);
 
     mainProgram = new shaderProgram_t(mainVertexShader, mainFragmentShader);
     textProgram = new shaderProgram_t(textVertexShader, textFragmentShader);
@@ -903,11 +903,11 @@ void load() {
         exit(-1);
     }
 
-    if (sBase->load("xarm-sbase.stl") ||
-        s6->load("xarm-s6.stl") ||
-        s5->load("xarm-s5.stl") ||
-        s4->load("xarm-s4.stl") ||
-        s3->load("xarm-s3.stl")) {
+    if (sBase->load("assets/xarm-sbase.stl") ||
+        s6->load("assets/xarm-s6.stl") ||
+        s5->load("assets/xarm-s5.stl") ||
+        s4->load("assets/xarm-s4.stl") ||
+        s3->load("assets/xarm-s3.stl")) {
         std::cout << "A model failed to load" << std::endl;
         glfwTerminate();
         exit(-1);

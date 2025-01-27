@@ -1,0 +1,4 @@
+*.out
+*.blend1
+.vscode
+__pycache__

@@ -91,7 +91,7 @@ lastSegment = None
 debug_objects = []
 perst_objects = []
 create_objects = True
-use_robot = True
+use_robot = False
 use_joystick = True
 elapsed_time = 0
 last_frame = 0
@@ -207,11 +207,11 @@ class Segment:
     axis_of_rotation = None
 
 
-s_base = Segment(None, z_axis, z_direction, 0, 46.19, Mesh('xarm-sbase.stl', c='blue', alpha=1.0), 7) # was 46.0 for length, real length is 65
-s_6 = Segment(s_base, z_axis, z_direction, 0, 35.98, Mesh('xarm-s6.stl', c='blue', alpha=1.0), 6) # was 35.0 for length
-s_5 = Segment(s_6, y_axis, z_direction, 0, 98.0, Mesh('xarm-s5.stl', c='blue', alpha=1.0), 5)
-s_4 = Segment(s_5, y_axis, z_direction, 0, 96.0, Mesh('xarm-s4.stl', c='blue', alpha=1.0), 4)
-s_3 = Segment(s_4, y_axis, z_direction, 0, 150.0, Mesh('xarm-s3.stl', c='blue', alpha=1.0), 3)
+s_base = Segment(None, z_axis, z_direction, 0, 46.19, Mesh('assets/xarm-sbase.stl', c='blue', alpha=1.0), 7) # was 46.0 for length, real length is 65
+s_6 = Segment(s_base, z_axis, z_direction, 0, 35.98, Mesh('assets/xarm-s6.stl', c='blue', alpha=1.0), 6) # was 35.0 for length
+s_5 = Segment(s_6, y_axis, z_direction, 0, 98.0, Mesh('assets/xarm-s5.stl', c='blue', alpha=1.0), 5)
+s_4 = Segment(s_5, y_axis, z_direction, 0, 96.0, Mesh('assets/xarm-s4.stl', c='blue', alpha=1.0), 4)
+s_3 = Segment(s_4, y_axis, z_direction, 0, 150.0, Mesh('assets/xarm-s3.stl', c='blue', alpha=1.0), 3)
 
 def slider_alpha(widget, event):
     for s in segments:

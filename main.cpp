@@ -21,6 +21,7 @@ struct mesh_t;
 struct texture_t;
 struct shader_t;
 struct shaderProgram_t;
+struct segment_t;
 struct debug_info_t;
 
 int width = 1600, height = 900;
@@ -37,6 +38,8 @@ shader_t *mainVertexShader, *mainFragmentShader;
 shader_t *textVertexShader, *textFragmentShader;
 shaderProgram_t *mainProgram, *textProgram;
 camera_t *camera;
+segment_t *sBase, *s6, *s5, *s4, *s3;
+std::vector<segment_t*> segments;
 debug_info_t *debugInfo;
 
 using hrc = std::chrono::high_resolution_clock;
@@ -155,9 +158,13 @@ struct mesh_t {
         glm::vec2 tex;
     };
 
-    void load(const char *filename) {
+    bool load(const char *filename) {
         stl_reader::ReadStlFile(filename, coords, normals, tris, solids);
         
+        if (tris.size() < 1) {
+            return glfail;
+        }
+
         minBound = glm::vec3(std::numeric_limits<float>().max());
         maxBound = glm::vec3(std::numeric_limits<float>().min());
 
@@ -224,6 +231,8 @@ struct mesh_t {
         }
 
         delete [] verticies;
+
+        return glsuccess;
     }
 
     void render() {
@@ -364,9 +373,6 @@ struct segment_t : public mesh_t {
     }
 
     glm::vec3 matrix_to_vector(glm::mat4 mat) {
-        glm::vec3 sum;
-        for (int i = 0; i < 3; i++)
-            sum += glm::vec3(mat[i]);
         return glm::normalize(mat[2]);
     }
 
@@ -374,18 +380,9 @@ struct segment_t : public mesh_t {
         return length * model_scale;
     }
 
-    glm::mat4 get_base_matrix() {
-        return glm::mat4(x_axis, y_axis, z_axis, glm::vec4(0,0,0,1));
-    }
-
     glm::mat4 vector_to_matrix(glm::vec3 vec) {
-        glm::mat4 out;
-        glm::vec4 inv(vec.x, vec.y, vec.z, 0.0);
-        out[0] = inv * x_axis;
-        out[1] = inv * y_axis;
-        out[2] = inv * z_axis;
-        out[3] = glm::vec4(0,0,0,1);
-        return out;
+        glm::vec4 hyp_vec = glm::vec4(vec.x, vec.y, vec.z, 1.0f);
+        return glm::mat4(1.0f) * glm::mat4(hyp_vec,hyp_vec,hyp_vec,hyp_vec);
     }
 
     glm::vec3 rotate_vector_3d(glm::vec3 vec, glm::vec3 axis, float degrees) {
@@ -396,63 +393,43 @@ struct segment_t : public mesh_t {
     }
 
     glm::mat4 get_rotation_matrix() {
-        //glm::mat4 base_rotation(x_axis, y_axis, z_axis, glm::vec4(0,0,0,1));
-        glm::mat4 base_rotation(1.0f);
+        if (!parent)
+            return glm::rotate(glm::mat4(1.0f), glm::radians(-90.0f), glm::vec3(x_axis));
 
-        if (!parent) {
-            return glm::rotate(base_rotation, glm::radians(-90.0f), glm::vec3(x_axis));
-            //return base_rotation;
-        }
-
-        glm::mat4 parent_matrix = parent->get_rotation_matrix();
-        glm::mat4 rotation_axis_matrix = glm::rotate(parent_matrix, glm::radians(rotation), rotation_axis);
-        
-        return rotation_axis_matrix;
-
-        for (int i = 0; i < 3; i++)
-            rotation_axis_matrix[i] = parent_matrix[i] * rotation_axis[i];
-
-        glm::vec3 rotation_axis_vector = matrix_to_vector(rotation_axis_matrix);
-
-        glm::mat4 rotated_axis = parent_matrix * rotation_axis_matrix;
-
-        return glm::rotate(parent_matrix, rotation, rotation_axis_vector);
-
-        //return parent_matrix;
+        return glm::rotate(parent->get_rotation_matrix(), glm::radians(rotation), rotation_axis);
     }
 
     glm::mat4 get_model_transform() {
-        model_scale = 1.0;
-        rotation += 0.1f;
+        //model_scale = 1.0;
+        
         glm::vec3 origin = get_origin();
         glm::mat4 matrix(1.);
-        //matrix = glm::rotate(matrix, glm::radians(-90.0f), glm::vec3(x_axis));
-        //matrix = glm::rotate(matrix, glm::radians(rotation), glm::vec3(rotation_axis));
+        
         matrix = glm::translate(matrix, origin);
         matrix *= get_rotation_matrix();
         matrix = glm::scale(matrix, glm::vec3(model_scale));
-        //std::cout << glm::to_string(matrix) << std::endl;
-        //std::cout << glm::to_string(get_rotation_matrix()) << std::endl;
+        
         return matrix;        
     }
 
     glm::vec3 get_segment_vector() {
-        /*
-        if (servo_num == 7)
-            return glm::vec3(2.54,0,get_length());
-        */
         return matrix_to_vector(get_rotation_matrix()) * get_length();
     }
 
     glm::vec3 get_origin() {
         if (!parent)
             return position;
-/*
-        if (servo_num == 5) {
+
+        if (servo_num == 5) { //shift forward just for this servo
+            glm::mat4 iden = parent->get_rotation_matrix();
+            auto trn = glm::vec3(2.54f * model_scale, 0., 0.);
+            iden = glm::translate(iden, trn);
+            iden = glm::rotate(iden, glm::radians(90.0f), {0,0,1});
+
             return parent->get_segment_vector() + 
                    parent->get_origin() + 
-                   (rotate_vector_3d(get_rotation_matrix()[1], z_axis, 90.0) * glm::vec3(2.54 * model_scale));
-        }*/
+                   glm::vec3(iden[3]);
+        }
 
         return parent->get_segment_vector() + parent->get_origin();
     }
@@ -466,9 +443,6 @@ struct segment_t : public mesh_t {
     }
 
     void renderMatrix(glm::vec3 origin, glm::mat4 mat) {
-        std::cout << glm::to_string(origin) << std::endl;
-        std::cout << glm::to_string(mat) << std::endl;
-
         glm::vec4 m = glm::vec4(origin.x, origin.y, origin.z, 0);
 
         renderVector(origin, m + mat[0]);
@@ -672,6 +646,14 @@ void init() {
     textProgram = new shaderProgram_t(textVertexShader, textFragmentShader);
 
     debugInfo = new debug_info_t();
+
+    sBase = new segment_t(nullptr, z_axis, z_axis, 46.19, 7);
+    s6 = new segment_t(sBase, z_axis, z_axis, 35.98, 6);
+    s5 = new segment_t(s6, y_axis, z_axis, 96.0, 5);
+    s4 = new segment_t(s5, y_axis, z_axis, 96.0, 4);
+    s3 = new segment_t(s4, y_axis, z_axis, 150.0, 3);
+
+    segments = std::vector<segment_t*>({sBase, s6, s5, s4, s3});
 }
 
 void load() {
@@ -680,6 +662,16 @@ void load() {
         textProgram->load() ||
         debugInfo->load())) {
         std::cout << "A component failed to load" << std::endl;
+        glfwTerminate();
+        exit(-1);
+    }
+
+    if (sBase->load("xarm-sbase.stl") ||
+        s6->load("xarm-s6.stl") ||
+        s5->load("xarm-s5.stl") ||
+        s4->load("xarm-s4.stl") ||
+        s3->load("xarm-s3.stl")) {
+        std::cout << "A model failed to load" << std::endl;
         glfwTerminate();
         exit(-1);
     }
@@ -736,18 +728,6 @@ int main() {
 
     load();
 
-    segment_t s_base(nullptr, z_axis, z_axis, 46.19, 7);
-    segment_t s_6(&s_base, z_axis, z_axis, 35.98, 6);
-    segment_t s_5(&s_6, y_axis, z_axis, 98.0, 5);
-    segment_t s_4(&s_5, y_axis, z_axis, 96.0, 4);
-    segment_t s_3(&s_4, y_axis, z_axis, 150.0, 3);
-
-    s_base.load("xarm-sbase.stl");
-    s_6.load("xarm-s6.stl");
-    s_5.load("xarm-s5.stl");
-    s_4.load("xarm-s4.stl");
-    s_3.load("xarm-s3.stl");
-
     uni_model = glGetUniformLocation(mainProgram->programId, "model");
     uni_view = glGetUniformLocation(mainProgram->programId, "view");
     uni_projection = glGetUniformLocation(mainProgram->programId, "projection");
@@ -764,11 +744,11 @@ int main() {
         handle_keyboard(window, deltaTime);
 
         glEnable(GL_DEPTH_TEST);
-		glEnable(GL_POLYGON_OFFSET_FILL);
+        glEnable(GL_POLYGON_OFFSET_FILL);
         glDisable(GL_CULL_FACE);
-		glEnable(GL_ALPHA_TEST);
-		glEnable(GL_BLEND);
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glEnable(GL_ALPHA_TEST);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
         glm::mat4 model = glm::scale(glm::mat4(1.0), glm::vec3(0.1));
         //glm::mat4 model = glm::translate(glm::mat4(1.0), glm::vec3(0));
@@ -785,7 +765,8 @@ int main() {
         glUniformMatrix4fv(uni_view, 1, GL_FALSE, glm::value_ptr(view));
         glUniformMatrix4fv(uni_projection, 1, GL_FALSE, glm::value_ptr(projection));
         glUniform3fv(uni_norm, 1, glm::value_ptr(norm));
-        
+
+        /*
         glBegin(GL_TRIANGLES);
             glColor3f(1.0f, 0.0f, 0.0f); // Red
             glVertex3f(-0.6f, -0.4f, 0.0f);
@@ -794,13 +775,11 @@ int main() {
             glColor3f(0.0f, 0.0f, 1.0f); // Blue
             glVertex3f(0.0f, 0.6f, 0.0f);
         glEnd();
+        */
 
-        s_3.render();
-        s_4.render();
-        s_5.render();
-        s_6.render();
-        s_base.render();
-        
+        for (auto *segment : segments)
+            segment->render();
+
         calcFps();
 
         renderDebugInfo();
@@ -828,4 +807,20 @@ void handle_keyboard(GLFWwindow* window, float deltaTime) {
         glfwSetWindowShouldClose(window, true);
     }
     camera->keyboard(window, deltaTime);
+
+    int raise[] = {GLFW_KEY_R, GLFW_KEY_T, GLFW_KEY_Y, GLFW_KEY_U};
+    int lower[] = {GLFW_KEY_F, GLFW_KEY_G, GLFW_KEY_H, GLFW_KEY_J};
+    segment_t *segments[] = {s6,s5,s4,s3};
+
+    float movementFactor = movementSpeed;
+    if (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS)
+        movementFactor = rapidSpeed;
+
+    for (int i = 0; i < 4; i++) {
+        if (glfwGetKey(window, raise[i]) == GLFW_PRESS)
+            segments[i]->rotation += movementFactor * deltaTime;
+
+        if (glfwGetKey(window, lower[i]) == GLFW_PRESS)
+            segments[i]->rotation -= movementFactor * deltaTime;
+    }
 }

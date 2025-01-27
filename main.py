@@ -2,8 +2,8 @@
 
 import os
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = 'hide'
-from xml.dom.minidom import Notation
-from matplotlib.widgets import SliderBase
+#from xml.dom.minidom import Notation
+#from matplotlib.widgets import SliderBase
 import vedo
 from vedo import *
 import numpy

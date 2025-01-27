@@ -1,0 +1,4 @@
+vedo==2024.5.2
+numpy==1.26.4
+pygame==2.5.2
+easyhid==0.0.10

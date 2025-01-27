@@ -22,6 +22,7 @@ struct texture_t;
 struct shader_t;
 struct shaderProgram_t;
 struct segment_t;
+struct kinematics_t;
 struct debug_info_t;
 
 int width = 1600, height = 900;
@@ -41,6 +42,8 @@ camera_t *camera;
 segment_t *sBase, *s6, *s5, *s4, *s3;
 std::vector<segment_t*> segments;
 debug_info_t *debugInfo;
+kinematics_t *kinematics;
+glm::vec3 robot_target(0.0f);
 
 using hrc = std::chrono::high_resolution_clock;
 using tp = std::chrono::time_point<hrc>;
@@ -152,6 +155,10 @@ struct mesh_t {
     glm::vec3 minBound, maxBound;
     glm::vec3 position;
     
+    mesh_t() {
+        position = glm::vec3(0.0f);
+    }
+
     struct _vnt {
         glm::vec3 vertex;
         glm::vec3 normal;
@@ -372,7 +379,7 @@ struct segment_t : public mesh_t {
         //this->rotation = 12.0f;
     }
 
-    glm::vec3 matrix_to_vector(glm::mat4 mat) {
+    static glm::vec3 matrix_to_vector(glm::mat4 mat) {
         return glm::normalize(mat[2]);
     }
 
@@ -380,12 +387,12 @@ struct segment_t : public mesh_t {
         return length * model_scale;
     }
 
-    glm::mat4 vector_to_matrix(glm::vec3 vec) {
+    static glm::mat4 vector_to_matrix(glm::vec3 vec) {
         glm::vec4 hyp_vec = glm::vec4(vec.x, vec.y, vec.z, 1.0f);
         return glm::mat4(1.0f) * glm::mat4(hyp_vec,hyp_vec,hyp_vec,hyp_vec);
     }
 
-    glm::vec3 rotate_vector_3d(glm::vec3 vec, glm::vec3 axis, float degrees) {
+    static glm::vec3 rotate_vector_3d(glm::vec3 vec, glm::vec3 axis, float degrees) {
         float radians = glm::radians(degrees);
         glm::mat4 rtn_matrix = vector_to_matrix(vec);
 
@@ -633,6 +640,235 @@ struct debug_info_t {
     }
 };
 
+struct kinematics_t {
+    static glm::vec2 map_to_xy(glm::vec3 pos, float r = 0.0f, glm::vec3 a = -z_axis, glm::vec3 o = glm::vec3(0.0f), glm::vec3 t = glm::vec3(0.0f)) {
+        //auto mapped = segment_t::rotate_vector_3d(pos - o, a, r);
+        auto matrix = glm::translate(glm::mat4(1.0f), pos - o);
+        matrix = glm::rotate(matrix, glm::radians(r), a);
+        auto npos = glm::vec3(matrix[3].x, matrix[3].z, 0);
+        return npos + t;
+    }
+
+    bool solve_inverse(glm::vec3 coordsIn) {
+        auto isnot_real = [](float x){
+            return (isinf(x) || isnan(x));
+        };
+
+        bool calculation_failure = false;
+
+        auto target_coords = coordsIn;
+        auto target_2d = glm::vec2(target_coords.x, target_coords.z);
+
+        float rot_out[5];
+
+        for (int i = 0; i < segments.size(); i++)
+            rot_out[i] = segments[i]->rotation;
+
+        // solve base rotation
+        auto seg_6 = s6->get_origin();
+        auto seg2d_6 = glm::vec2(seg_6.x, seg_6.z);
+
+        auto dif_6 = target_2d - seg2d_6;
+        auto atan2_6 = atan2(dif_6[1], dif_6[0]);
+        auto norm_6 = atan2_6 / M_PI;
+        auto rot_6 = (norm_6 + 1.0f) / 2.0f;
+        auto deg_6 = rot_6 * 360.0f;
+        auto serv_6 = rot_6;
+
+        //s6->rotation = serv_6;
+
+        glm::vec3 seg_5 = s5->get_origin();
+        glm::vec3 seg_5_real = glm::vec3(seg_5.x, seg_5.z, seg_5.y);
+
+        auto target_pl3d = map_to_xy({target_coords.x, target_coords.z, target_coords.y}, deg_6, -z_axis, seg_5_real);
+        auto target_pl2d = glm::vec2(target_pl3d);
+        auto plo3d = glm::vec3(0.0f);
+        auto plo2d = glm::vec2(0.0f);
+        auto pl3d = glm::vec3(500.0f, 0.0f, 0.0f);
+        auto pl2d = glm::vec2(pl3d);
+        auto s2d = glm::vec2(500);
+
+        std::vector<segment_t*> remaining_segments;
+        remaining_segments.assign(segments.begin() + 2, segments.end());
+        //std::reverse(remaining_segments.begin(), remaining_segments.end());
+
+        auto prev_origin = target_pl2d;
+        std::vector<glm::vec2> new_origins;
+
+        printf("target_pl2d <%.2f,%.2f> target_pl3d <%.2f,%.2f,%.2f> seg_5 <%.2f,%.2f,%.2f> deg_6: %.2f\n", target_pl2d.x, target_pl2d.y, target_coords.x, target_coords.y, target_coords.z, seg_5.x, seg_5.y, seg_5.z, deg_6);
+
+        while (true) {
+            if (remaining_segments.size() < 1) {
+                puts("No more segments");
+                break;
+            }
+
+            auto seg = remaining_segments.back();
+            float segment_radius = seg->get_length();
+            float total_length = 0.0f;
+
+            for (auto *x : remaining_segments)
+                total_length += x->get_length();
+
+            float dist_to_segment = total_length - segment_radius;
+            float segment_min = total_length - (segment_radius * 2);
+            float dist_origin_to_prev = glm::distance<2, float>(plo2d, prev_origin);
+            auto mag = glm::normalize(prev_origin - plo2d);
+            
+            bool skip_optim = false;
+
+            if (remaining_segments.size() < 3) {
+                puts("2 or less segments left");
+                skip_optim = true;
+            }
+
+            float equal_mp = ((dist_origin_to_prev * dist_origin_to_prev) -
+                        (segment_radius * segment_radius) +
+                        (dist_to_segment * dist_to_segment)) /
+                        (dist_origin_to_prev * dist_origin_to_prev);
+            float rem_dist = dist_origin_to_prev - equal_mp;
+            float rem_min = -segment_radius/2.0f;
+            float rem_retract = 0.0f;
+            float rem_extend = segment_radius * 0.5f;
+            float rem_ex2 = rem_extend * 1.75f;
+            float rem_max = segment_radius * 0.95f;
+
+            printf("servo: %i, rem_dist: %.2f, rem_max: %.2f, equal_mp: %.2f, segment_radius: %.2f, dist_origin_to_prev: %.2f, dist_to_segment: %.2f, total_length: %.2f, prev_origin <%.2f,%.2f>\n", seg->servo_num, rem_dist, rem_max, equal_mp, segment_radius, dist_origin_to_prev, dist_to_segment, total_length, prev_origin.x, prev_origin.y);
+
+            auto new_origin = prev_origin;
+
+            if (dist_to_segment < 0.05f) {
+                new_origins.push_back(new_origin);
+                puts("Convergence");
+                break;
+            }
+
+            if (rem_dist > rem_max) {
+                puts("Not enough overlap");
+                printf("rem_dist: %.2f rem_max: %.2f\n", rem_dist, rem_max);
+            }
+
+            if (!skip_optim) {
+                if (segment_radius > dist_origin_to_prev) {
+                    auto v = rem_extend - (segment_radius - dist_origin_to_prev);
+                    equal_mp = dist_origin_to_prev - v;
+                } else
+                if (rem_dist < rem_extend && total_length > dist_origin_to_prev) {
+                    equal_mp = dist_origin_to_prev - rem_extend;
+                } else
+                if (rem_dist < rem_retract && total_length > dist_origin_to_prev) {
+                    equal_mp = dist_origin_to_prev - rem_retract;
+                } else
+                if (rem_dist < rem_ex2 && rem_dist >= rem_extend && total_length > dist_origin_to_prev) {
+                    auto r = rem_ex2 - rem_extend;
+                    r = (rem_dist - rem_extend) / r;
+                    auto v = r / 2.0f;
+
+                    if (v > 0.4f)
+                        v -= (v - 0.38f);
+
+                    equal_mp = dist_origin_to_prev - (v * segment_radius + rem_extend);
+                }
+
+                if (rem_dist < rem_min) {
+                    puts("Too much overlap");
+                    rem_dist = rem_min;
+                } else
+                if (rem_dist > rem_max) {
+                    puts("Not enough overlap");
+                } else {
+                    rem_dist = dist_origin_to_prev - equal_mp;
+                }
+            }
+
+            printf("rem_dist: %.2f, rem_max: %.2f, equal_mp: %.2f, dist_origin_to_prev: %.2f, dist_to_segment: %.2f\n", rem_dist, rem_max, equal_mp, dist_origin_to_prev, dist_to_segment);
+
+            auto mp_vec = mag * equal_mp;
+            auto n = sqrtf((segment_radius * segment_radius) - (rem_dist * rem_dist));
+            auto o = atan2(mag.y, mag.x) - (M_PI / 2.0f);
+            auto new_mag = glm::vec2(cosf(o),sinf(o));
+            new_origin = mp_vec + (new_mag * n);
+            auto new_origin3d = glm::vec3(new_origin.x, new_origin.y, 0.0f);
+            auto dist_new_prev = glm::distance<2, float>(new_origin, prev_origin);
+
+            float tolerable_distance = 10.0f;
+
+            if (abs(dist_new_prev - segment_radius) > tolerable_distance) {
+                puts("Distance to prev is too different");
+                calculation_failure = true;
+            }
+
+            if (remaining_segments.size() < 1 && glm::distance<2, float>(new_origin, target_pl2d) > tolerable_distance) {
+                puts("Distance to target is too far");
+                calculation_failure = true;
+            }
+
+            if (isnot_real(new_origin.x) || isnot_real(new_origin.y))
+                new_origin = prev_origin;//glm::vec2(0.0f);
+
+            nocalc:;
+
+            prev_origin = new_origin;
+            new_origins.push_back(new_origin);
+            remaining_segments.pop_back();
+        }
+
+        if (calculation_failure) {
+            puts("Failed to calculate");
+            return glfail;
+        } else {
+            if (new_origins.size() < 1) {
+                puts("Not enough origins");
+                return glfail;
+            }
+
+            float prevrot = 0.0f;
+            auto prevmag = glm::vec2(0.0f,1.0f);
+            auto prev = glm::vec2(0.0f);
+            new_origins.pop_back();
+            std::reverse(new_origins.begin(), new_origins.end());
+            new_origins.push_back(target_pl2d);
+
+            for (int i = 0; i < new_origins.size(); i++) {
+                auto cur = new_origins[i];
+
+                auto dif = cur - prev;
+                auto mag = glm::normalize(dif);
+
+                auto servo = segments[i + 2];
+                auto calcmag = mag;
+
+                auto rot = atan2(calcmag.x, calcmag.y) - prevrot;
+
+                auto deg = ((glm::degrees(rot)) / 180.0f) * 0.5f + 1.0f;
+
+                if (isnot_real(deg)) {
+                    deg = rot_out[i + 2];
+                    rot = glm::radians(deg);
+                }
+                
+                printf("servo: %i, rot: %.2f, deg: %.2f, prevrot: %.2f, calcmag[0]: %.2f, calcmag[1]: %.2f, cur[0]: %.2f, cur[1]: %.2f, prev[0]: %.2f, prev[1]: %.2f\n", servo->servo_num, rot, deg, prevrot, calcmag.x, calcmag.y, cur.x, cur.y, prev.x, prev.y);
+
+                
+                rot_out[i + 2] = deg;
+
+                prev = cur;
+                prevmag = mag;
+                prevrot += rot;
+            }
+        }
+
+        printf("Initial rot: %.2f,%.2f,%.2f,%.2f,%.2f\n", rot_out[0], rot_out[1], rot_out[2], rot_out[3], rot_out[4]);
+
+        rot_out[1] = serv_6;
+
+        printf("End rot: %.2f,%.2f,%.2f,%.2f,%.2f\n", rot_out[0], rot_out[1], rot_out[2], rot_out[3], rot_out[4]);
+        for (int i = 0; i < segments.size(); i++)
+            segments[i]->rotation = rot_out[i] * 360.0f;
+        return glsuccess;
+    }
+};
+
 void init() {
     camera = new camera_t();
     textTexture = new texture_t("text.png");
@@ -654,6 +890,7 @@ void init() {
     s3 = new segment_t(s4, y_axis, z_axis, 150.0, 3);
 
     segments = std::vector<segment_t*>({sBase, s6, s5, s4, s3});
+    kinematics = new kinematics_t();
 }
 
 void load() {
@@ -675,6 +912,8 @@ void load() {
         glfwTerminate();
         exit(-1);
     }
+
+    robot_target = s3->get_segment_vector() + s3->get_origin();
 }
 
 void framebuffer_size_callback(GLFWwindow *window, int width, int height);
@@ -697,9 +936,16 @@ void renderDebugInfo() {
     {
         const int bufsize = 1000;
         char char_buf[bufsize];
+
+        glm::vec3 s3_t = s3->get_segment_vector() + s3->get_origin();
+        
         snprintf(char_buf, bufsize, 
-        "FPS: %.0f\n<%.2f,%.2f,%.2f>",
-        fps, camera->position.x, camera->position.y, camera->position.z
+        "FPS: %.0f\nCamera<%.2f,%.2f,%.2f>\nTarget<%.2f,%.2f,%.2f>\ns3<%.2f,%.2f,%.2f>\nRotation<%.2f,%.2f,%.2f,%.2f>",
+        fps, 
+        camera->position.x, camera->position.y, camera->position.z,
+        robot_target.x, robot_target.y, robot_target.z,
+        s3_t.x,s3_t.y,s3_t.z,
+        s6->rotation, s5->rotation, s4->rotation, s3->rotation
         );
         debugInfo->set_string(&char_buf[0]);
     }
@@ -816,11 +1062,57 @@ void handle_keyboard(GLFWwindow* window, float deltaTime) {
     if (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS)
         movementFactor = rapidSpeed;
 
-    for (int i = 0; i < 4; i++) {
-        if (glfwGetKey(window, raise[i]) == GLFW_PRESS)
-            segments[i]->rotation += movementFactor * deltaTime;
+    bool change_2 = false;
 
-        if (glfwGetKey(window, lower[i]) == GLFW_PRESS)
+    for (int i = 0; i < 4; i++) {
+        if (glfwGetKey(window, raise[i]) == GLFW_PRESS) {
+            segments[i]->rotation += movementFactor * deltaTime;
+            change_2 = true;
+        }
+
+        if (glfwGetKey(window, lower[i]) == GLFW_PRESS) {
             segments[i]->rotation -= movementFactor * deltaTime;
+            change_2 = true;
+        }
+    }
+
+    if (change_2)
+        robot_target = s3->get_segment_vector() + s3->get_origin();
+
+    int robot3d[] = {GLFW_KEY_O, GLFW_KEY_L, GLFW_KEY_K, GLFW_KEY_SEMICOLON, GLFW_KEY_I, GLFW_KEY_P};
+    bool robot3d_o[6];
+    bool change = false;
+
+    for (int i = 0; i < 6; i++) {
+        robot3d_o[i] = (glfwGetKey(window, robot3d[i]) == GLFW_PRESS);
+
+        if (robot3d_o[i]) {
+            change = true;
+
+            switch (i) {
+                case 0:
+                    robot_target.z += movementFactor * deltaTime;
+                    break;
+                case 1:
+                    robot_target.z -= movementFactor * deltaTime;
+                    break;
+                case 2:
+                    robot_target.x -= movementFactor * deltaTime;
+                    break;
+                case 3:
+                    robot_target.x += movementFactor * deltaTime;
+                    break;
+                case 4:
+                    robot_target.y -= movementFactor * deltaTime;
+                    break;
+                case 5:
+                    robot_target.y += movementFactor * deltaTime;
+                    break;
+            }
+        }
+    }
+
+    if (change) {
+        kinematics->solve_inverse(robot_target);
     }
 }

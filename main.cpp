@@ -1,5 +1,6 @@
 #include <iostream>
 #include <limits>
+#include <chrono>
 
 #include <GLES3/gl3.h>
 #include <EGL/egl.h>
@@ -11,11 +12,16 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/string_cast.hpp>
 
-#include "stl_reader.h"
+#define STB_IMAGE_IMPLEMENTATION
+#include "thirdparty/stb_image.h"
+#include "thirdparty/stl_reader.h"
 
 struct camera_t;
 struct mesh_t;
+struct texture_t;
 struct shader_t;
+struct shaderProgram_t;
+struct debug_info_t;
 
 int width = 1600, height = 900;
 float lastTime;
@@ -23,9 +29,21 @@ float mouseSensitivity = 0.05f;
 float preciseSpeed = 0.1f;
 float movementSpeed = 10.0f;
 float rapidSpeed = 100.0f;
-GLFWwindow* window;
-GLuint program;
+GLFWwindow *window;
 GLint uni_projection, uni_model, uni_norm, uni_view;
+const GLuint gluninitialized = -1, glfail = -1, glsuccess = GL_NO_ERROR;
+texture_t *textTexture;
+shader_t *mainVertexShader, *mainFragmentShader;
+shader_t *textVertexShader, *textFragmentShader;
+shaderProgram_t *mainProgram, *textProgram;
+camera_t *camera;
+debug_info_t *debugInfo;
+
+using hrc = std::chrono::high_resolution_clock;
+using tp = std::chrono::time_point<hrc>;
+tp start, end;
+int frameCount = 0;
+float fps;
 
 glm::vec4 x_axis(1,0,0,0), y_axis(0,1,0,0), z_axis(0,0,1,0);
 
@@ -216,6 +234,124 @@ struct mesh_t {
     }
 };
 
+struct texture_t {
+    GLuint textureId;
+    std::string path;
+
+    texture_t(std::string path)
+    :path(path),textureId(gluninitialized) { }
+
+    bool isLoaded() {
+        return textureId != gluninitialized;
+    }
+
+    bool load() {
+        int width, height, channels;
+        unsigned char* image = stbi_load(path.c_str(), &width, &height, &channels, 0);
+
+        if (!image) {
+            std::cout << "Error opening image file: " << path << std::endl;
+            return glfail;
+        }
+
+        glGenTextures(1, &textureId);
+        glBindTexture(GL_TEXTURE_2D, textureId);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, image);
+        glGenerateMipmap(GL_TEXTURE_2D);
+
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+        return glsuccess;
+    }
+};
+
+struct shader_t {
+    GLuint shaderId;
+    GLenum type;
+    std::string path;
+
+    shader_t(std::string path, GLenum type)
+    :path(path),type(type),shaderId(gluninitialized) { }
+
+    bool isLoaded() {
+        return shaderId != gluninitialized;
+    }
+
+    bool load() {
+        std::stringstream buffer;
+        std::ifstream file(path);
+        if (!file.is_open()) {
+            std::cerr << "Error opening shader file: " << path << std::endl;
+            return glfail;
+        }
+        buffer << file.rdbuf();
+        std::string shaderCodeStr = buffer.str();
+        const char* shaderCode = shaderCodeStr.c_str();
+        int length = shaderCodeStr.size();
+        shaderId = glCreateShader(type);
+        glShaderSource(shaderId, 1, &shaderCode, 0);
+        glCompileShader(shaderId);
+        GLint compiled = 0;
+        glGetShaderiv(shaderId, GL_COMPILE_STATUS, &compiled);
+        GLint infoLen = 512;
+        if (compiled == GL_FALSE) {
+            char infoLog[infoLen];
+            glGetShaderInfoLog(shaderId, infoLen, nullptr, infoLog);
+            std::cerr << "Error compiling shader: " << path << std::endl;
+            std::cerr << infoLog << std::endl;
+            //std::cerr << shaderCodeStr << std::endl;
+            glDeleteShader(shaderId);
+            return glfail;
+        }
+
+        return glsuccess;
+    }
+};
+
+struct shaderProgram_t {
+    GLuint programId;
+    std::vector<shader_t*> shaders;
+
+    template<typename ...Ts>
+    shaderProgram_t(Ts ...shaders)
+    :shaders({shaders...}),programId(gluninitialized) { }
+
+    bool load() {
+        for (auto *shader : shaders)
+            if (!shader->isLoaded())
+                if (shader->load() != glsuccess) {
+                    std::cout << "Shader failed to load, will not link shader" << std::endl;
+                    return glfail;
+                } else {
+                    if (shader->shaderId == gluninitialized) {
+                        std::cout << "shaderId is uninitialized" << std::endl;
+                        return glfail;
+                    }
+                }
+
+        programId = glCreateProgram();
+        
+        for (auto *shader : shaders)
+            glAttachShader(programId, shader->shaderId);
+
+        glLinkProgram(programId);
+
+        int success = 0;
+        glGetProgramiv(programId, GL_LINK_STATUS, &success);
+        if (success == GL_FALSE) {
+            char infoLog[513];
+            glGetProgramInfoLog(programId, 512, NULL, infoLog);
+            std::cout << "Error linking shader\n" << infoLog << std::endl;
+            return glfail;
+        }
+
+        return glsuccess;
+    }
+};
+
 struct segment_t : public mesh_t {
     segment_t(segment_t *parent, glm::vec3 rotation_axis, glm::vec3 initial_direction, float length, int servo_num) {
         this->parent = parent;
@@ -223,7 +359,8 @@ struct segment_t : public mesh_t {
         this->initial_direction = initial_direction;
         this->length = length;
         this->servo_num = servo_num;
-        this->rotation = 12.0f;
+        this->rotation = 0.0f;
+        //this->rotation = 12.0f;
     }
 
     glm::vec3 matrix_to_vector(glm::mat4 mat) {
@@ -263,8 +400,8 @@ struct segment_t : public mesh_t {
         glm::mat4 base_rotation(1.0f);
 
         if (!parent) {
-            //return glm::rotate(base_rotation, glm::radians(90.0f), glm::vec3(x_axis));
-            return base_rotation;
+            return glm::rotate(base_rotation, glm::radians(-90.0f), glm::vec3(x_axis));
+            //return base_rotation;
         }
 
         glm::mat4 parent_matrix = parent->get_rotation_matrix();
@@ -289,10 +426,10 @@ struct segment_t : public mesh_t {
         rotation += 0.1f;
         glm::vec3 origin = get_origin();
         glm::mat4 matrix(1.);
-        matrix = glm::rotate(matrix, glm::radians(-90.0f), glm::vec3(x_axis));
+        //matrix = glm::rotate(matrix, glm::radians(-90.0f), glm::vec3(x_axis));
         //matrix = glm::rotate(matrix, glm::radians(rotation), glm::vec3(rotation_axis));
-        matrix *= get_rotation_matrix();
         matrix = glm::translate(matrix, origin);
+        matrix *= get_rotation_matrix();
         matrix = glm::scale(matrix, glm::vec3(model_scale));
         //std::cout << glm::to_string(matrix) << std::endl;
         //std::cout << glm::to_string(get_rotation_matrix()) << std::endl;
@@ -329,23 +466,41 @@ struct segment_t : public mesh_t {
     }
 
     void renderMatrix(glm::vec3 origin, glm::mat4 mat) {
-        renderVector(origin, mat[0]);
-        renderVector(origin, mat[1]);
-        renderVector(origin, mat[2]);
+        std::cout << glm::to_string(origin) << std::endl;
+        std::cout << glm::to_string(mat) << std::endl;
+
+        glm::vec4 m = glm::vec4(origin.x, origin.y, origin.z, 0);
+
+        renderVector(origin, m + mat[0]);
+        renderVector(origin, m + mat[1]);
+        renderVector(origin, m + mat[2]);
     }
 
     void renderDebug() {
         glm::vec3 origin = get_origin();
         renderVector(origin, get_origin());
         renderVector(origin, get_segment_vector());
-        renderMatrix(origin, get_rotation_matrix());
+
+        auto rot_mat = get_rotation_matrix();
+        auto tran_rot_mat = glm::translate(rot_mat, origin);
+
+        /*
+        std::cout << "Servo: " << servo_num << std::endl;
+        std::cout << "Origin vec3d\n" << glm::to_string(origin) << std::endl;
+        std::cout << "Rotation matrix\n" << glm::to_string(rot_mat) << std::endl;
+        std::cout << "Rotation matrix translated\n" << glm::to_string(tran_rot_mat) << std::endl;
+        */
+
+        renderMatrix(origin, tran_rot_mat);
     }
 
     void render() {
-        glUseProgram(program);
-        glm::mat4 model = get_model_transform();
+        glUseProgram(mainProgram->programId);
+        glm::mat4 model = glm::mat4(1.);
         glUniformMatrix4fv(uni_model, 1, GL_FALSE, glm::value_ptr(model));
         renderDebug();
+        model = get_model_transform();
+        glUniformMatrix4fv(uni_model, 1, GL_FALSE, glm::value_ptr(model));
         mesh_t::render();
     }
 
@@ -356,43 +511,209 @@ struct segment_t : public mesh_t {
     int servo_num;
 };
 
-struct shader_t {
-    GLuint shaderId;
+struct debug_info_t {
+    std::string string_buffer;
+    GLuint vbo, vao, vertexCount;
+    int currentX, currentY;
+    float screenX, screenY;
+    bool modified;
 
-    void load(const char *filename, GLenum shaderType) {
-        std::stringstream buffer;
-        std::ifstream file(filename);
-        if (!file.is_open()) {
-            std::cerr << "Error opening shader file: " << filename << std::endl;
+    struct text_t {
+        float x, y, u, v;
+        text_t(float x, float y, float u, float v)
+        :x(x),y(y),u(u),v(v) { }
+        text_t() { }
+    };
+
+    void string_change() {
+        modified = true;
+    }
+
+    void set_string(std::string str) {
+        string_buffer = str;
+        string_change();
+    }
+
+    void set_string(const char* str) {
+        set_string(std::string(str));
+    }
+
+    void add_line(std::string str) {
+        string_buffer += str + '\n';
+        string_change();
+    }
+
+    void add_string(std::string str) {
+        string_buffer += str;
+        string_change();
+    }
+
+    debug_info_t() {
+        reset();
+    }
+
+    void reset() {
+        string_buffer.clear();
+        currentX = currentY = 0;
+        screenX = screenY = 0;
+        vertexCount = 0;
+        modified = true;
+    }
+
+    bool load() {
+        glGenBuffers(1, &vbo);
+        glGenVertexArrays(1, &vao);
+
+        return glsuccess;
+    }
+
+    void render() {
+        if (modified)
+            mesh();
+
+        glDisable(GL_CULL_FACE);
+        glUseProgram(textProgram->programId);
+        glBindTexture(GL_TEXTURE_2D, textTexture->textureId);
+        glBindVertexArray(vao);
+        glm::mat4 model = glm::translate(glm::mat4(1.0), glm::vec3(0.0));
+        glUniformMatrix4fv(uni_model, 1, GL_FALSE, glm::value_ptr(model));
+        glDrawArrays(GL_TRIANGLES, 0, vertexCount);
+        glBindVertexArray(0);
+    }
+
+    protected:
+    void add_character(text_t *buffer, int character) {
+        //const float fontSize = 1.0f / 16.0f;
+        const float fontWidth = 1.0f / 16.0f,
+                    fontHeight = 1.0f / 16.0f;
+        const float screenWidth = fontWidth / 2, 
+                    screenHeight = fontHeight;
+        float sX = screenX - 1.0f;
+        float sY = screenY - (1.0f - screenHeight);
+        float sW = screenWidth;
+        float sH = screenHeight;
+        float fW = fontWidth;
+        float fH = fontHeight;
+
+
+        const text_t verticies[6] = {
+            {sX,sY,0,0},
+            {sX+sW,sY,fW,0},
+            {sX,sY+sH,0,fH},
+            {sX+sW,sY,fW,0},
+            {sX+sW,sY+sH,fW,fH},
+            {sX,sY+sH,0,fH}
+        };
+
+        float textX = (character % 16) * fontWidth;
+        float textY = (character / 16 % 16) * fontHeight;
+        float posX = currentX * screenWidth;
+        float posY = currentY * screenHeight;
+
+        for (int i = 0; i < 6; i++) {
+            buffer[vertexCount].x = verticies[i].x + posX;
+            buffer[vertexCount].y = -verticies[i].y + (screenHeight - posY);
+            buffer[vertexCount].u = verticies[i].u + textX;
+            buffer[vertexCount].v = verticies[i].v + textY + (1.0f / 256.0f); 
+
+            vertexCount++;
+        }
+    }
+
+    void mesh() {
+        currentX = currentY = vertexCount = 0;
+
+        if (string_buffer.size() < 1) {
+            modified = false;
             return;
         }
-        buffer << file.rdbuf();
-        std::string shaderCodeStr = buffer.str();
-        const char* shaderCode = shaderCodeStr.c_str();
-        int length = shaderCodeStr.size();
-        shaderId = glCreateShader(shaderType);
-        glShaderSource(shaderId, 1, &shaderCode, 0);
-        glCompileShader(shaderId);
-        GLint compiled = 0;
-        glGetShaderiv(shaderId, GL_COMPILE_STATUS, &compiled);
-        GLint infoLen = 512;
-        if (compiled == GL_FALSE) {
-            char infoLog[infoLen];
-            glGetShaderInfoLog(shaderId, infoLen, nullptr, infoLog);
-            std::cerr << "Error compiling shader: " << filename << std::endl;
-            std::cerr << infoLog << std::endl;
-            std::cerr << shaderCodeStr << std::endl;
-            glDeleteShader(shaderId);
+
+        text_t *buffer = new text_t[string_buffer.size() * 6];
+
+        for (auto ch : string_buffer) {
+            if (ch == '\n') {
+                currentX = 0;
+                currentY++;
+                continue;
+            }
+
+            add_character(buffer, ch);
+            currentX++;
         }
+
+        modified = false;
+
+        glBindVertexArray(vao);
+        glBindBuffer(GL_ARRAY_BUFFER, vbo);
+
+        glBufferData(GL_ARRAY_BUFFER, vertexCount * sizeof * buffer, buffer, GL_STATIC_DRAW);
+
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, (const void*) (0));
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 16, (const void*) (8));
+        glEnableVertexAttribArray(1);
+
+        //printf("Text buffer: %i verticies\n", vertexCount);
+
+        delete [] buffer;
     }
 };
 
-camera_t camera;
-shader_t vertex_shader, fragment_shader;
+void init() {
+    camera = new camera_t();
+    textTexture = new texture_t("text.png");
+
+    mainVertexShader = new shader_t("shader/vertex.glsl", GL_VERTEX_SHADER);
+    mainFragmentShader = new shader_t("shader/fragment.glsl", GL_FRAGMENT_SHADER);
+    textVertexShader = new shader_t("shader/text_vertex_shader.glsl", GL_VERTEX_SHADER);
+    textFragmentShader = new shader_t("shader/text_fragment_shader.glsl", GL_FRAGMENT_SHADER);
+
+    mainProgram = new shaderProgram_t(mainVertexShader, mainFragmentShader);
+    textProgram = new shaderProgram_t(textVertexShader, textFragmentShader);
+
+    debugInfo = new debug_info_t();
+}
+
+void load() {
+    if ((textTexture->load() ||
+        mainProgram->load() ||
+        textProgram->load() ||
+        debugInfo->load())) {
+        std::cout << "A component failed to load" << std::endl;
+        glfwTerminate();
+        exit(-1);
+    }
+}
 
 void framebuffer_size_callback(GLFWwindow *window, int width, int height);
 void cursor_position_callback(GLFWwindow *window, double x, double y);
 void handle_keyboard(GLFWwindow* window, float deltaTime);
+
+void calcFps() {
+    frameCount++;
+    end = hrc::now();
+    std::chrono::duration<float> duration = end - start;
+
+    if (duration.count() >= 1.0) {
+        fps = frameCount / duration.count();
+        frameCount = 0;
+        start = hrc::now();
+    }
+}
+
+void renderDebugInfo() {
+    {
+        const int bufsize = 1000;
+        char char_buf[bufsize];
+        snprintf(char_buf, bufsize, 
+        "FPS: %.0f\n<%.2f,%.2f,%.2f>",
+        fps, camera->position.x, camera->position.y, camera->position.z
+        );
+        debugInfo->set_string(&char_buf[0]);
+    }
+
+    debugInfo->render();
+}
 
 int main() {
     glfwInit();
@@ -411,6 +732,10 @@ int main() {
 
     lastTime = glfwGetTime();
 
+    init();
+
+    load();
+
     segment_t s_base(nullptr, z_axis, z_axis, 46.19, 7);
     segment_t s_6(&s_base, z_axis, z_axis, 35.98, 6);
     segment_t s_5(&s_6, y_axis, z_axis, 98.0, 5);
@@ -423,29 +748,10 @@ int main() {
     s_4.load("xarm-s4.stl");
     s_3.load("xarm-s3.stl");
 
-
-    program = glCreateProgram();
-    vertex_shader.load("vertex.glsl", GL_VERTEX_SHADER);
-    fragment_shader.load("fragment.glsl", GL_FRAGMENT_SHADER);
-    glAttachShader(program, vertex_shader.shaderId);
-    glAttachShader(program, fragment_shader.shaderId);
-    glLinkProgram(program);
-
-    int success = 0;
-    glGetProgramiv(program, GL_LINK_STATUS, &success);
-    if (success == GL_FALSE) {
-        char infoLog[513];
-        glGetProgramInfoLog(program, 512, NULL, infoLog);
-        std::cout << "Error linking shader\n" << infoLog << std::endl;
-    }
-
-    glDeleteShader(vertex_shader.shaderId);
-    glDeleteShader(fragment_shader.shaderId);
-
-    uni_model = glGetUniformLocation(program, "model");
-    uni_view = glGetUniformLocation(program, "view");
-    uni_projection = glGetUniformLocation(program, "projection");
-    uni_norm = glGetUniformLocation(program, "norm");
+    uni_model = glGetUniformLocation(mainProgram->programId, "model");
+    uni_view = glGetUniformLocation(mainProgram->programId, "view");
+    uni_projection = glGetUniformLocation(mainProgram->programId, "projection");
+    uni_norm = glGetUniformLocation(mainProgram->programId, "norm");
 
     //glViewport(0, 0, width, height);
     while (!glfwWindowShouldClose(window)) {
@@ -460,32 +766,26 @@ int main() {
         glEnable(GL_DEPTH_TEST);
 		glEnable(GL_POLYGON_OFFSET_FILL);
         glDisable(GL_CULL_FACE);
-		//glEnable(GL_ALPHA_TEST);
-		//glEnable(GL_BLEND);
-		//glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+		glEnable(GL_ALPHA_TEST);
+		glEnable(GL_BLEND);
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
         glm::mat4 model = glm::scale(glm::mat4(1.0), glm::vec3(0.1));
         //glm::mat4 model = glm::translate(glm::mat4(1.0), glm::vec3(0));
-        glm::mat4 view = camera.getViewMatrix();
-        glm::mat4 projection = glm::perspective(glm::radians(camera.fov),
-                                                (float) width / height, camera.near, camera.far);
+        glm::mat4 view = camera->getViewMatrix();
+        glm::mat4 projection = glm::perspective(glm::radians(camera->fov),
+                                                (float) width / height, camera->near, camera->far);
         glm::mat3 norm(model);
         norm = glm::inverse(norm);
         norm = glm::transpose(norm);
 
-        glUseProgram(program);
+        glUseProgram(mainProgram->programId);
 
         glUniformMatrix4fv(uni_model, 1, GL_FALSE, glm::value_ptr(model));
         glUniformMatrix4fv(uni_view, 1, GL_FALSE, glm::value_ptr(view));
         glUniformMatrix4fv(uni_projection, 1, GL_FALSE, glm::value_ptr(projection));
         glUniform3fv(uni_norm, 1, glm::value_ptr(norm));
         
-        s_3.render();
-        s_4.render();
-        s_5.render();
-
-        //glUseProgram(0);
-
         glBegin(GL_TRIANGLES);
             glColor3f(1.0f, 0.0f, 0.0f); // Red
             glVertex3f(-0.6f, -0.4f, 0.0f);
@@ -494,7 +794,16 @@ int main() {
             glColor3f(0.0f, 0.0f, 1.0f); // Blue
             glVertex3f(0.0f, 0.6f, 0.0f);
         glEnd();
+
+        s_3.render();
+        s_4.render();
+        s_5.render();
+        s_6.render();
+        s_base.render();
         
+        calcFps();
+
+        renderDebugInfo();
 
         glfwSwapBuffers(window);
         glfwPollEvents();
@@ -511,12 +820,12 @@ void framebuffer_size_callback(GLFWwindow *window, int width, int height) {
 }
 
 void cursor_position_callback(GLFWwindow *window, double x, double y) {
-    camera.mouseMove(window, x, y);
+    camera->mouseMove(window, x, y);
 }
 
 void handle_keyboard(GLFWwindow* window, float deltaTime) {
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
         glfwSetWindowShouldClose(window, true);
     }
-    camera.keyboard(window, deltaTime);
+    camera->keyboard(window, deltaTime);
 }

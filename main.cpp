@@ -1,16 +1,17 @@
 #include <iostream>
 #include <limits>
 #include <chrono>
+#include <functional>
 
+#include <GL/gl.h>
 #include <GLES3/gl3.h>
 #include <EGL/egl.h>
 #include <GLFW/glfw3.h>
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
 
-#include <GL/gl.h>
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/string_cast.hpp>
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "thirdparty/stb_image.h"
@@ -26,8 +27,13 @@ struct segment_t;
 struct material_t;
 struct kinematics_t;
 struct debug_info_t;
+struct ui_element_t;
+struct ui_text_t;
+struct ui_slider_t;
 
-int width = 1600, height = 900;
+glm::vec<4, int> initial_window;
+glm::vec<4, int> current_window;
+bool fullscreen;
 float lastTime;
 float mouseSensitivity = 0.05f;
 float preciseSpeed = 0.1f;
@@ -35,7 +41,7 @@ float movementSpeed = 10.0f;
 float rapidSpeed = 20.0f;
 GLFWwindow *window;
 GLint uni_projection, uni_model, uni_norm, uni_view;
-const GLuint gluninitialized = -1, glfail = -1, glsuccess = GL_NO_ERROR;
+const GLuint gluninitialized = -1, glfail = -1, glsuccess = GL_NO_ERROR, glcaught = 1;
 texture_t *textTexture, *mainTexture;
 shader_t *mainVertexShader, *mainFragmentShader;
 shader_t *textVertexShader, *textFragmentShader;
@@ -45,7 +51,9 @@ material_t *robotMaterial;
 camera_t *camera;
 segment_t *sBase, *s6, *s5, *s4, *s3;
 std::vector<segment_t*> segments;
-debug_info_t *debugInfo;
+ui_text_t *debugInfo;
+ui_slider_t *slider6, *slider5, *slider4, *slider3;
+ui_element_t *uiHandler;
 kinematics_t *kinematics;
 glm::vec3 robot_target(0.0f);
 
@@ -457,6 +465,10 @@ struct shaderProgram_t {
         glUniform3fv(get_uniform_location(name), 1, glm::value_ptr(vec));
     }
 
+    virtual void set_v4(const char *name, glm::vec4 vec) {
+        glUniform4fv(get_uniform_location(name), 1, glm::value_ptr(vec));
+    }
+
     virtual void set_f(const char *name, float v) {
         glUniform1f(get_uniform_location(name), v);
     }
@@ -698,154 +710,6 @@ struct segment_t : public mesh_t {
     int servo_num;
 };
 
-struct debug_info_t {
-    std::string string_buffer;
-    GLuint vbo, vao, vertexCount;
-    int currentX, currentY;
-    float screenX, screenY;
-    bool modified;
-
-    struct text_t {
-        float x, y, u, v;
-        text_t(float x, float y, float u, float v)
-        :x(x),y(y),u(u),v(v) { }
-        text_t() { }
-    };
-
-    void string_change() {
-        modified = true;
-    }
-
-    void set_string(std::string str) {
-        string_buffer = str;
-        string_change();
-    }
-
-    void set_string(const char* str) {
-        set_string(std::string(str));
-    }
-
-    void add_line(std::string str) {
-        string_buffer += str + '\n';
-        string_change();
-    }
-
-    void add_string(std::string str) {
-        string_buffer += str;
-        string_change();
-    }
-
-    debug_info_t() {
-        reset();
-    }
-
-    void reset() {
-        string_buffer.clear();
-        currentX = currentY = 0;
-        screenX = screenY = 0;
-        vertexCount = 0;
-        modified = true;
-    }
-
-    bool load() {
-        glGenBuffers(1, &vbo);
-        glGenVertexArrays(1, &vao);
-
-        return glsuccess;
-    }
-
-    void render() {
-        if (modified)
-            mesh();
-
-        glDisable(GL_CULL_FACE);
-        textProgram->use();
-        textTexture->use(0);
-        glBindVertexArray(vao);
-        glm::mat4 model = glm::translate(glm::mat4(1.0), glm::vec3(0.0));
-        glUniformMatrix4fv(uni_model, 1, GL_FALSE, glm::value_ptr(model));
-        glDrawArrays(GL_TRIANGLES, 0, vertexCount);
-        glBindVertexArray(0);
-    }
-
-    protected:
-    void add_character(text_t *buffer, int character) {
-        //const float fontSize = 1.0f / 16.0f;
-        const float fontWidth = 1.0f / 16.0f,
-                    fontHeight = 1.0f / 16.0f;
-        const float screenWidth = fontWidth / 2, 
-                    screenHeight = fontHeight;
-        float sX = screenX - 1.0f;
-        float sY = screenY - (1.0f - screenHeight);
-        float sW = screenWidth;
-        float sH = screenHeight;
-        float fW = fontWidth;
-        float fH = fontHeight;
-
-
-        const text_t verticies[6] = {
-            {sX,sY,0,0},
-            {sX+sW,sY,fW,0},
-            {sX,sY+sH,0,fH},
-            {sX+sW,sY,fW,0},
-            {sX+sW,sY+sH,fW,fH},
-            {sX,sY+sH,0,fH}
-        };
-
-        float textX = (character % 16) * fontWidth;
-        float textY = (character / 16 % 16) * fontHeight;
-        float posX = currentX * screenWidth;
-        float posY = currentY * screenHeight;
-
-        for (int i = 0; i < 6; i++) {
-            buffer[vertexCount].x = verticies[i].x + posX;
-            buffer[vertexCount].y = -verticies[i].y + (screenHeight - posY);
-            buffer[vertexCount].u = verticies[i].u + textX;
-            buffer[vertexCount].v = verticies[i].v + textY + (1.0f / 256.0f); 
-
-            vertexCount++;
-        }
-    }
-
-    void mesh() {
-        currentX = currentY = vertexCount = 0;
-
-        if (string_buffer.size() < 1) {
-            modified = false;
-            return;
-        }
-
-        text_t *buffer = new text_t[string_buffer.size() * 6];
-
-        for (auto ch : string_buffer) {
-            if (ch == '\n') {
-                currentX = 0;
-                currentY++;
-                continue;
-            }
-
-            add_character(buffer, ch);
-            currentX++;
-        }
-
-        modified = false;
-
-        glBindVertexArray(vao);
-        glBindBuffer(GL_ARRAY_BUFFER, vbo);
-
-        glBufferData(GL_ARRAY_BUFFER, vertexCount * sizeof * buffer, buffer, GL_STATIC_DRAW);
-
-        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, (const void*) (0));
-        glEnableVertexAttribArray(0);
-        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 16, (const void*) (8));
-        glEnableVertexAttribArray(1);
-
-        //printf("Text buffer: %i verticies\n", vertexCount);
-
-        delete [] buffer;
-    }
-};
-
 struct kinematics_t {
     static glm::vec2 map_to_xy(glm::vec3 pos, float r = 0.0f, glm::vec3 a = -z_axis, glm::vec3 o = glm::vec3(0.0f), glm::vec3 t = glm::vec3(0.0f)) {
         //auto mapped = segment_t::rotate_vector_3d(pos - o, a, r);
@@ -1075,9 +939,497 @@ struct kinematics_t {
     }
 };
 
+struct ui_element_t {
+    std::vector<ui_element_t*> children;
+    GLFWwindow *window;
+    glm::vec4 XYWH;
+    GLuint vao, vbo, vertexCount;
+    bool modified, loaded;
+
+    ui_element_t()
+    :modified(true),loaded(false),window(0) {}
+
+    ui_element_t(const ui_element_t &ui)
+    :ui_element_t() {
+        *this = ui;
+    }
+
+    template<typename ...Ts>
+    ui_element_t(GLFWwindow *window, glm::vec4 xywh, Ts ...children_)
+    :ui_element_t() {
+        this->children = {children_...};
+        this->window = window;
+        this->XYWH = xywh;
+    }
+
+    virtual ui_element_t* add_child(ui_element_t *ui) {
+        children.push_back(ui);
+        return ui;
+    }
+
+    virtual bool render() {
+        return run_children(&ui_element_t::render);
+    }
+
+    virtual bool mesh() {
+        modified = false;
+
+        return glsuccess;
+    }
+
+    virtual glm::vec2 get_cursor_position() {
+        double x, y;
+        int width, height;
+        glfwGetCursorPos(window, &x, &y);
+        glfwGetFramebufferSize(window, &width, &height);
+        auto unmapped = glm::vec2(x / width, y / height);
+        return unmapped * glm::vec2(2.) - glm::vec2(1.);
+    }
+
+    virtual glm::vec2 get_cursor_relative() {
+        return get_cursor_position() - glm::vec2(XYWH);
+    }
+
+    virtual bool is_cursor_bound() {
+        auto cursor_pos = get_cursor_position();
+        //printf("cursor <%f,%f> win <%f,%f,%f,%f>\n", cursor_pos.x, cursor_pos.y, XYWH[0], XYWH[1], XYWH[2], XYWH[3]);
+        return (cursor_pos.x >= XYWH.x && cursor_pos.y >= XYWH.y &&
+                cursor_pos.x <= XYWH.x + XYWH[2] && cursor_pos.y <= XYWH.y + XYWH[3]);
+    }
+
+    virtual std::string get_element_name() {
+        return "ui_element_t";
+    }
+
+    virtual bool load() {
+        run_children(&ui_element_t::load);
+
+        if (loaded) {
+            puts("Attempt to load twice");
+            return glfail;
+        }
+
+        glGenBuffers(1, &vbo);
+        glGenVertexArrays(1, &vao);
+        vertexCount = 0;
+        modified = true;
+        loaded = true;
+
+        printf("Loaded <%s,%i,%i,%i,%i,<%f,%f,%f,%f>>\n",
+            get_element_name().c_str(), vbo, vao, vertexCount,
+            modified, XYWH[0], XYWH[1], XYWH[2], XYWH[3]);
+
+        return glsuccess;
+    }
+
+    virtual bool reset() { 
+        return run_children(&ui_element_t::reset);
+    }
+
+    template<typename... Ts>
+    using _func=bool(ui_element_t*, Ts...);
+    //using void(ui_element_t::_func*, Ts...);
+
+    template<typename Tfunc, typename... Ts>
+    bool run_children(Tfunc func, Ts... values) {
+        for (auto *element : children)
+            //((_func<Ts...>*)func)(element, values...);
+            if ((element->*func)(values...))
+                return glcaught;
+        return glsuccess;
+    }
+
+    virtual bool onKeyboard(float deltaTime) {
+        return run_children(&ui_element_t::onKeyboard, deltaTime);
+    }
+
+    virtual bool onMouse(int button, int action, int mods) {
+        return run_children(&ui_element_t::onMouse, button, action, mods);
+    }
+
+    virtual bool onFramebuffer(int width, int height) { 
+        return run_children(&ui_element_t::onFramebuffer, width, height);
+    }
+
+    virtual bool onCursor(double x, double y) {
+        return run_children(&ui_element_t::onCursor, x, y);
+    }
+};
+
+struct ui_text_t : public ui_element_t {
+    std::string string_buffer;
+    int currentX, currentY;
+
+    struct text_t {
+        float x, y, u, v;
+        text_t(float x, float y, float u, float v)
+        :x(x),y(y),u(u),v(v) { }
+        text_t() { }
+    };
+
+    void string_change() {
+        modified = true;
+    }
+
+    void set_string(std::string str) {
+        string_buffer = str;
+        string_change();
+    }
+
+    void set_string(const char* str) {
+        set_string(std::string(str));
+    }
+
+    void add_line(std::string str) {
+        string_buffer += str + '\n';
+        string_change();
+    }
+
+    void add_string(std::string str) {
+        string_buffer += str;
+        string_change();
+    }
+
+    bool reset() override {
+        string_buffer.clear();
+        modified = true;
+        return glsuccess;
+    }
+
+    ui_text_t(ui_element_t ui)
+    :ui_element_t(ui) {
+        reset();
+    }
+
+    ui_text_t(GLFWwindow *window, glm::vec4 xywh, std::string text)
+    :ui_element_t(window, xywh) {
+        reset();
+        set_string(text);
+    }
+
+    bool render() override {
+        run_children(&ui_element_t::render);
+
+        if (modified)
+            mesh();
+
+        glDisable(GL_CULL_FACE);
+        glDisable(GL_DEPTH_TEST);
+        textProgram->use();
+        textTexture->use(0);
+        //printf("%s %i verticies\n", get_element_name().c_str(), vertexCount);
+        textProgram->set_m4("projection", glm::mat4(1.0f));
+        textProgram->set_i("textureSampler", 0);
+
+        glBindVertexArray(vao);
+        glDrawArrays(GL_TRIANGLES, 0, vertexCount);
+        glBindVertexArray(0);
+
+        return glsuccess;
+    }
+
+    std::string get_element_name() override {
+        return "ui_text_t";
+    }
+
+    protected:
+    void add_character(text_t *buffer, int character) {
+        //const float fontSize = 1.0f / 16.0f;
+        const float fontWidth = 1.0f / 16.0f,
+                    fontHeight = 1.0f / 16.0f;
+        const float screenWidth = fontWidth / 2, 
+                    screenHeight = fontHeight;
+        float sX = XYWH[0];
+        float sY = XYWH[1];
+        float sW = screenWidth;
+        float sH = screenHeight;
+        float fW = fontWidth;
+        float fH = fontHeight;
+
+
+        const text_t verticies[6] = {
+            {sX,sY,0,0},
+            {sX+sW,sY,fW,0},
+            {sX,sY+sH,0,fH},
+            {sX+sW,sY,fW,0},
+            {sX+sW,sY+sH,fW,fH},
+            {sX,sY+sH,0,fH}
+        };
+
+        float textX = (character % 16) * fontWidth;
+        float textY = (character / 16 % 16) * fontHeight;
+        float posX = currentX * screenWidth;
+        float posY = currentY * screenHeight;
+
+        for (int i = 0; i < 6; i++) {
+            buffer[vertexCount].x = verticies[i].x + posX;
+            buffer[vertexCount].y = verticies[i].y + posY;// + (screenHeight - posY);
+            buffer[vertexCount].u = verticies[i].u + textX;
+            buffer[vertexCount].v = verticies[i].v + textY + (1.0f / 256.0f); 
+
+            vertexCount++;
+        }
+    }
+
+    bool mesh() override {
+        currentX = currentY = vertexCount = 0;
+
+        //puts(string_buffer.c_str());
+
+        if (string_buffer.size() < 1) {
+            modified = false;
+            return glsuccess;
+        }
+
+        text_t *buffer = new text_t[string_buffer.size() * 6];
+
+        for (auto ch : string_buffer) {
+            if (ch == '\n') {
+                currentX = 0;
+                currentY++;
+                continue;
+            }
+
+            add_character(buffer, ch);
+            currentX++;
+        }
+
+        modified = false;
+
+        glBindVertexArray(vao);
+        glBindBuffer(GL_ARRAY_BUFFER, vbo);
+
+        glBufferData(GL_ARRAY_BUFFER, vertexCount * sizeof * buffer, buffer, GL_STATIC_DRAW);
+
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, (const void*) (0));
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 16, (const void*) (8));
+        glEnableVertexAttribArray(1);
+
+        //printf("Text buffer: %i verticies\n", vertexCount);
+
+        delete [] buffer;
+
+        return glsuccess;
+    }
+};
+
+struct ui_slider_t : public ui_element_t {
+    using ui_slider_v = float;
+    using buffer_t = ui_text_t::text_t;
+    using callback_t = std::function<void()>;
+
+    ui_slider_v min, max, value;
+    bool cursor_drag, limit;
+    std::function<void()> value_change_callback;
+
+    ui_text_t *title_text, *min_text, *max_text, *value_text;
+
+    ui_slider_t(GLFWwindow *window, glm::vec4 XYWH, ui_slider_v min, ui_slider_v max, ui_slider_v value, std::string title, bool limit = true, callback_t value_change_callback = callback_t())
+    :ui_element_t(window, {XYWH.x, XYWH.y+.1, XYWH[2], XYWH[3]}),min(min),max(max),value(value),cursor_drag(false),limit(limit) {
+        title_text = (ui_text_t*)add_child(new ui_text_t(window, XYWH, title));
+        min_text = (ui_text_t*)add_child(new ui_text_t(window, XYWH, std::to_string(min)));
+        max_text = (ui_text_t*)add_child(new ui_text_t(window, XYWH, std::to_string(max)));
+        value_text = (ui_text_t*)add_child(new ui_text_t(window, XYWH, std::to_string(value)));
+
+        set_min(min);
+        set_max(max);
+        set_value(value);
+        this->value_change_callback = value_change_callback;
+    }
+
+    virtual void set_min(ui_slider_v min) {
+        this->min = min;
+        min_text->XYWH = XYWH + glm::vec4(-0.05,-0.05,0,0);
+        min_text->set_string(vtos(min));
+        modified = true;
+    }
+
+    virtual void set_max(ui_slider_v max) {
+        this->max = max;
+        max_text->XYWH = XYWH + glm::vec4(XYWH[2]-0.05,-0.05,0,0);
+        max_text->set_string(vtos(max));
+        modified = true;
+    }
+
+    virtual std::string vtos(ui_slider_v v) {
+        const int buflen = 100;
+        char buf[buflen];
+        snprintf(buf, buflen, "%.1f", v);
+        return std::string(buf);
+    }
+
+    virtual void set_value(ui_slider_v v) {
+        ui_slider_v _vset = v;
+        if (limit)
+            _vset = clip(_vset, min, max);
+        //printf("value <%f,%f>\n", v, _vset);
+        this->value = _vset;
+        value_text->XYWH = get_slider_position()-glm::vec4(0,0.05,0,0);
+        value_text->set_string(vtos(value));
+        if (value_change_callback)
+            value_change_callback();
+        modified = true;
+    }
+
+    bool reset() override {
+        set_value((max-min)/2+min);
+
+        return glsuccess;
+    }
+
+    std::string get_element_name() override {
+        return "ui_slider_t";
+    }
+
+    ui_slider_v clip(ui_slider_v val, ui_slider_v b1, ui_slider_v b2) {
+        ui_slider_v min = std::min(b1, b2);
+        ui_slider_v max = std::max(b1, b2);
+
+        if (val < min)
+            return min;
+        if (val > max)
+            return max;
+        return val;
+
+        //return std::min(std::max(value, min), max);
+    }
+
+    bool onCursor(double x, double y) override {
+        if (cursor_drag) {
+            ui_slider_v v_raw = get_cursor_relative().x / XYWH[2];
+            ui_slider_v v_map = (v_raw * (max - min)) + min;
+            //printf("set slider <%f,%f>\n", v_raw, v_map);
+            set_value(v_map);
+
+            return glcaught;
+        }
+        return ui_element_t::onCursor(x,y);
+    }
+
+    glm::vec4 get_slider_position() {
+        ui_slider_v bound = std::min(std::max(value, min), max);
+        ui_slider_v min = std::min(this->max, this->min);
+        ui_slider_v max = std::max(this->max, this->min);
+
+        auto in = XYWH;
+        ui_slider_v norm = ((bound - min) / (max - min));
+        auto pos = (norm * in[2]) + in[0];
+        auto itemh = in[3] * 0.75;
+        //auto itemwh = glm::vec2(itemh / 4,itemh);
+        auto itemwh = glm::vec2(0.1);
+
+        auto mp_y = (in[3] / 2.) + in[1];
+        auto itemhf = itemwh / glm::vec2(2.);
+
+        //printf("norm: %f, pos: %f, itemh: %f, mp_y: %f, value: %f, min: %f, max: %f, bound: %f, min: %f, max: %f\n", norm, pos, itemh, mp_y, value, min, max, bound, this->min, this->max);
+
+        return glm::vec4(pos - itemhf.x, mp_y - itemhf.y, itemwh.x, itemwh.y);
+    }
+
+    bool cursorInside() {
+        double x, y;
+        glfwGetCursorPos(window, &x, &y);
+        return false;
+    }
+
+    bool cursorOnItem() {
+        double x, y;
+        glfwGetCursorPos(window, &x, &y);
+        return false;
+    }
+
+    bool onMouse(int button, int action, int mods) override {
+        if (is_cursor_bound() && button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
+            cursor_drag = true;
+            return glcaught;
+        } else {
+            cursor_drag = false;
+        }
+        return ui_element_t::onMouse(button, action, mods);
+    }
+
+    void getRect(buffer_t *buffer, unsigned int &vertexCount, glm::vec4 XYWH, glm::vec4 UVWH = glm::vec4(0,0,1,1.)) {
+        ui_slider_v x = XYWH[0], y = XYWH[1], w = XYWH[2], h = XYWH[3];
+        ui_slider_v u = UVWH[0], v = UVWH[1], uw = XYWH[2], vh = XYWH[3];
+
+        const buffer_t verticies[6] = {
+            {x,y,u,v},
+            {x+w,y,u+uw,v},
+            {x,y+h,u,v+vh},
+            {x+w,y,u+uw,v},
+            {x+w,y+h,u+uw,v+vh},
+            {x,y+h,u,v+vh}
+        };
+
+        for (int i = 0; i < 6; i++) {
+            buffer[vertexCount] = verticies[i];
+
+            vertexCount++;
+        }
+    }
+
+    bool mesh() override {
+        modified = false;
+        vertexCount = 0;
+
+        buffer_t *buffer = new buffer_t[1 * 18];
+
+        getRect(buffer, vertexCount, {XYWH.x, XYWH.y + (XYWH[3] / 2) - 0.02f, XYWH[2], 0.04f}, {0.0,0.0,0,0});
+        getRect(buffer, vertexCount, get_slider_position(), {0.8,0.7,0,0});
+        //getRect(buffer, vertexCount, {0.5,0.5,0.1,0.1});
+
+        glBindVertexArray(vao);
+        glBindBuffer(GL_ARRAY_BUFFER, vbo);
+        glBufferData(GL_ARRAY_BUFFER, vertexCount * sizeof * buffer, buffer, GL_STATIC_DRAW);
+
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, (const void*) (0));
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 16, (const void*) (8));
+        glEnableVertexAttribArray(1);
+
+        delete [] buffer;
+
+        return glsuccess;
+    }
+
+    bool render() override {
+        if (modified)
+            mesh();
+
+        if (vertexCount < 1)
+            return glsuccess;
+
+        glDisable(GL_CULL_FACE);
+        glDisable(GL_DEPTH_TEST);
+
+        textProgram->use();
+        textTexture->use();
+        textProgram->set_m4("projection", glm::mat4(1.0f));
+        textProgram->set_i("textureSampler", 0);
+        textProgram->set_f("mixFactor", 1.0);
+
+        glBindVertexArray(vao);
+        glDrawArrays(GL_TRIANGLES, 0, vertexCount);
+        glBindVertexArray(0);
+
+        textProgram->set_f("mixFactor", 0.0);
+
+        ui_element_t::render();
+        
+        return glsuccess;
+    }
+};
+
+void servo_slider_update() {
+    s6->rotation = slider6->value;
+    s5->rotation = slider5->value;
+    s4->rotation = slider4->value;
+    s3->rotation = slider3->value;
+}
+
 void init() {
     camera = new camera_t();
-    textTexture = new texture_t("assets/text.png");
 
     mainVertexShader = new shader_t("shaders/vertex.glsl", GL_VERTEX_SHADER);
     mainFragmentShader = new shader_t("shaders/fragment.glsl", GL_FRAGMENT_SHADER);
@@ -1089,11 +1441,24 @@ void init() {
 
     mainTexture = new texture_t();
     mainTexture->generate(glm::vec4(0.0f,0.0f,1.0f,1.0f));
+    textTexture = new texture_t("assets/text.png");
 
     robotMaterial = new material_t(mainTexture,mainTexture,0.2f);
     mainProgram->set_material(robotMaterial);
 
-    debugInfo = new debug_info_t();
+    uiHandler = new ui_element_t(window, {-1.0f,-1.0f,2.0f,2.0f});
+    //uiHandler->add_child(new ui_text_t(window, {0.0,0.0,.1,.1}, "Hello World!"));
+    debugInfo = (ui_text_t*)uiHandler->add_child(new ui_text_t({window, {-1.0f,-1.0f,2.0f,2.0f}}));
+    glm::vec4 sliderOffset = {0.45, -1.,0,0};
+    glm::vec4 sliderSize = {0,0,0.5,0.1};
+    glm::vec4 sliderPos = sliderOffset + sliderSize;
+    glm::vec4 sliderAdd = {0.0,0.2,0,0};
+    glm::vec2 sMM = {-180, 180.};
+    slider6 = (ui_slider_t*)uiHandler->add_child(new ui_slider_t(window, sliderPos, sMM.x, sMM.y, 0., "Servo 6", true, servo_slider_update));
+    slider5 = (ui_slider_t*)uiHandler->add_child(new ui_slider_t(window, sliderPos + (sliderAdd * glm::vec4(1.)), sMM.x, sMM.y, 0., "Servo 5", true, servo_slider_update));
+    slider4 = (ui_slider_t*)uiHandler->add_child(new ui_slider_t(window, sliderPos + (sliderAdd * glm::vec4(2.)), sMM.x, sMM.y, 0., "Servo 4", true, servo_slider_update));
+    slider3 = (ui_slider_t*)uiHandler->add_child(new ui_slider_t(window, sliderPos + (sliderAdd * glm::vec4(3.)), sMM.x, sMM.y, 0., "Servo 3", true, servo_slider_update));
+    //debugInfo = new ui_text_t(window, {0.0,0.0,1.,1.}, "Hello world 2!");
 
     sBase = new segment_t(nullptr, z_axis, z_axis, 46.19, 7);
     s6 = new segment_t(sBase, z_axis, z_axis, 35.98, 6);
@@ -1108,8 +1473,7 @@ void init() {
 void load() {
     if ((textTexture->load() ||
         mainProgram->load() ||
-        textProgram->load() ||
-        debugInfo->load())) {
+        textProgram->load())) {
         std::cout << "A component failed to load" << std::endl;
         glfwTerminate();
         exit(-1);
@@ -1124,6 +1488,9 @@ void load() {
         glfwTerminate();
         exit(-1);
     }
+
+    uiHandler->load();
+    //debugInfo->load();
 
     robot_target = s3->get_segment_vector() + s3->get_origin();
 }
@@ -1163,12 +1530,15 @@ void renderDebugInfo() {
         debugInfo->set_string(&char_buf[0]);
     }
 
-    debugInfo->render();
+    //debugInfo->render();
 }
 
 int main() {
     glfwInit();
-    window = glfwCreateWindow(width, height, "xArm", nullptr, nullptr);
+
+    initial_window = {0,0,1600,900};
+
+    window = glfwCreateWindow(initial_window[2], initial_window[3], "xArm", nullptr, nullptr);
     if (!window) {
         std::cerr << "Failed to create GLFW window" << std::endl;
         glfwTerminate();
@@ -1180,6 +1550,11 @@ int main() {
     glfwSetCursorPosCallback(window, cursor_position_callback);
     glfwSetMouseButtonCallback(window, mouse_button_callback);
     glfwSwapInterval(1);
+
+    glfwGetWindowPos(window, &initial_window.x, &initial_window.y);
+    glfwGetWindowSize(window, &initial_window[2], &initial_window[3]);
+
+    current_window = initial_window;
 
     lastTime = glfwGetTime();
 
@@ -1214,7 +1589,7 @@ int main() {
         //glm::mat4 model = glm::translate(glm::mat4(1.0), glm::vec3(0));
         glm::mat4 view = camera->getViewMatrix();
         glm::mat4 projection = glm::perspective(glm::radians(camera->fov),
-                                                (float) width / height, camera->near, camera->far);
+                                                (float) current_window[2] / current_window[3], camera->near, camera->far);
         glm::mat3 norm(model);
         norm = glm::inverse(norm);
         norm = glm::transpose(norm);
@@ -1250,9 +1625,13 @@ int main() {
         for (auto *segment : segments)
             segment->render();
 
+
         calcFps();
 
         renderDebugInfo();
+
+        if (uiHandler->render())
+            break;
 
         glfwSwapBuffers(window);
         glfwPollEvents();
@@ -1263,16 +1642,23 @@ int main() {
 }
 
 void framebuffer_size_callback(GLFWwindow *window, int width, int height) {
-    ::width = width;
-    ::height = height;
+    current_window[2] = width;
+    current_window[3] = height;
     glViewport(0, 0, width, height);
+    uiHandler->onFramebuffer(width, height);
 }
 
 void mouse_button_callback(GLFWwindow *window, int button, int action, int mods) {
+    if (uiHandler->onMouse(button, action, mods))
+        return;
+
     camera->mousePress(window, button, action, mods);
 }
 
 void cursor_position_callback(GLFWwindow *window, double x, double y) {
+    if (uiHandler->onCursor(x, y))
+        return;
+
     camera->mouseMove(window, x, y);
 }
 
@@ -1280,6 +1666,29 @@ void handle_keyboard(GLFWwindow* window, float deltaTime) {
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
         glfwSetWindowShouldClose(window, true);
     }
+
+    static tp last_toggle = hrc::now();
+    std::chrono::duration<float> duration = hrc::now() - last_toggle;
+
+    if (glfwGetKey(window, GLFW_KEY_F11) == GLFW_PRESS && duration.count() > .5) {
+        fullscreen = !fullscreen;
+
+        GLFWmonitor *monitor = glfwGetWindowMonitor(window);
+        if (!monitor)
+            monitor = glfwGetPrimaryMonitor();
+        const GLFWvidmode *mode = glfwGetVideoMode(monitor);
+
+        if (fullscreen)
+            glfwSetWindowMonitor(window, monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
+        else
+            glfwSetWindowMonitor(window, 0, initial_window[0], initial_window[1], initial_window[2], initial_window[3], mode->refreshRate);
+
+        last_toggle = hrc::now();
+    }
+
+    if (uiHandler->onKeyboard(deltaTime))
+        return;
+
     camera->keyboard(window, deltaTime);
 
     int raise[] = {GLFW_KEY_R, GLFW_KEY_T, GLFW_KEY_Y, GLFW_KEY_U};

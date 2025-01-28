@@ -16,6 +16,7 @@ void main() {
     worldPos = (model * vec4(aPosition, 1.0)).xyz;
     //normal = normalize((norm * vec3(0.5)) * (aNormal * vec3(0.5)));
     //normal = normalize((norm * vec3(2.2)) * (aNormal * vec3(0.2)));
-    normal = aNormal;
+    //normal = aNormal;
+    normal = normalize(aNormal * norm);
     texCoord = vec2(aTexCoord.x, -aTexCoord.y);
 }

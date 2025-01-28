@@ -21,7 +21,9 @@ struct mesh_t;
 struct texture_t;
 struct shader_t;
 struct shaderProgram_t;
+struct shader_materials_t;
 struct segment_t;
+struct material_t;
 struct kinematics_t;
 struct debug_info_t;
 
@@ -30,14 +32,16 @@ float lastTime;
 float mouseSensitivity = 0.05f;
 float preciseSpeed = 0.1f;
 float movementSpeed = 10.0f;
-float rapidSpeed = 100.0f;
+float rapidSpeed = 20.0f;
 GLFWwindow *window;
 GLint uni_projection, uni_model, uni_norm, uni_view;
 const GLuint gluninitialized = -1, glfail = -1, glsuccess = GL_NO_ERROR;
-texture_t *textTexture;
+texture_t *textTexture, *mainTexture;
 shader_t *mainVertexShader, *mainFragmentShader;
 shader_t *textVertexShader, *textFragmentShader;
-shaderProgram_t *mainProgram, *textProgram;
+shaderProgram_t *textProgram;
+shader_materials_t *mainProgram;
+material_t *robotMaterial;
 camera_t *camera;
 segment_t *sBase, *s6, *s5, *s4, *s3;
 std::vector<segment_t*> segments;
@@ -72,12 +76,36 @@ struct camera_t {
     float fov, near, far, pitch, yaw;
     double last_mouse[2];
     bool no_mouse = true;
+    bool interactive = false;
 
     glm::mat4 getViewMatrix() {
         return glm::lookAt(position, position + front, up);
     }
 
+    bool isInteractive() {
+        return interactive;
+    }
+
+    void mousePress(GLFWwindow *window, int button, int action, int mods) {
+        if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
+            interactive = !interactive;
+        } else
+        if (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS && interactive) {
+            interactive = false;
+        }
+
+        if (interactive) {
+            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+            no_mouse = true;
+        } else {
+            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+        }
+    }
+
     void mouseMove(GLFWwindow *window, double x, double y) {
+        if (!isInteractive())
+            return;
+
         double dx = x - last_mouse[0];
         double dy = last_mouse[1] - y;
 
@@ -106,6 +134,9 @@ struct camera_t {
     }
 
     void keyboard(GLFWwindow *window, float deltaTime) {
+        if (!isInteractive())
+            return;
+
         float movementFactor = movementSpeed;
         bool precise = (glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS);
         bool rapid = (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS);
@@ -172,8 +203,14 @@ struct mesh_t {
             return glfail;
         }
 
-        minBound = glm::vec3(std::numeric_limits<float>().max());
-        maxBound = glm::vec3(std::numeric_limits<float>().min());
+        auto minVec = glm::vec3(std::numeric_limits<float>().max());
+        auto maxVec = glm::vec3(std::numeric_limits<float>().min());
+
+        minBound = minVec;
+        maxBound = maxVec;
+
+        auto minNormal = minVec;
+        auto maxNormal = maxVec;
 
         glGenVertexArrays(1, &vao);
         glGenBuffers(1, &vbo);
@@ -198,18 +235,35 @@ struct mesh_t {
 
                     verticies[indexV].vertex = {v[0], v[1], v[2]};
                     verticies[indexV].normal = {n[0], n[1], n[2]};
+                    float ux[] = {0,0,1};
+                    float uy[] = {0,1,0};
+                    verticies[indexV].tex = {ux[indexV % 3], uy[indexV % 3] };
                 }
             }
+
+            auto set_min = [](glm::vec3 &a, const glm::vec3 &b) {
+                for (int i = 0; i < 3; i++)
+                    a[i] = std::min(a[i], b[i]);
+            };
+
+            auto set_max = [](glm::vec3 &a, const glm::vec3 &b) {
+                for (int i = 0; i < 3; i++)
+                    a[i] = std::max(a[i], b[i]);
+            };
 
             for (int i = 0; i < vertexCount; i++) {
                 auto vertex = verticies[i].vertex;
                 //printf("x: %f, y: %f, z: %f\n", vertex.x, vertex.y, vertex.z);
-                minBound.x = std::min(minBound.x, verticies[i].vertex.x);
+                /*minBound.x = std::min(minBound.x, verticies[i].vertex.x);
                 minBound.y = std::min(minBound.y, verticies[i].vertex.y);
                 minBound.z = std::min(minBound.z, verticies[i].vertex.z);
                 maxBound.x = std::max(maxBound.x, verticies[i].vertex.x);
                 maxBound.y = std::max(maxBound.y, verticies[i].vertex.y);
-                maxBound.z = std::max(maxBound.z, verticies[i].vertex.z);
+                maxBound.z = std::max(maxBound.z, verticies[i].vertex.z);*/
+                set_max(maxBound, verticies[i].vertex);
+                set_min(minBound, verticies[i].vertex);
+                set_max(maxNormal, verticies[i].normal);
+                set_min(minNormal, verticies[i].normal);
             }
 
             size_t coordSize = sizeof verticies[0].vertex;
@@ -233,8 +287,8 @@ struct mesh_t {
             glBindVertexArray(0);
 
             printf("Uploaded %i verticies, stride: %li, size: %li, vbo: %i, addr: %p\n", vertexCount, stride, vertexCount * sizeof verticies[0], vbo, verticies);
-            printf("Min: x: %f, y: %f, z: %f\n", minBound.x, minBound.y, minBound.z);
-            printf("Max: x: %f, y: %f, z: %f\n", maxBound.x, maxBound.y, maxBound.z);
+            printf("Vertex <min,max> <%f,%f><%f,%f><%f,%f>\n", minBound.x, maxBound.x, minBound.y, maxBound.y, minBound.z, maxBound.z);
+            printf("Normal <min,max> <%f,%f><%f,%f><%f,%f>\n", minNormal.x, maxNormal.x, minNormal.y, maxNormal.y, minNormal.z, maxNormal.z);
         }
 
         delete [] verticies;
@@ -254,11 +308,54 @@ struct texture_t {
     GLuint textureId;
     std::string path;
 
-    texture_t(std::string path)
-    :path(path),textureId(gluninitialized) { }
+    texture_t(std::string path) :path(path),textureId(gluninitialized) { }
+
+    texture_t() :path(),textureId(gluninitialized) { }
 
     bool isLoaded() {
         return textureId != gluninitialized;
+    }
+
+    void use(int unit) {
+        glActiveTexture(GL_TEXTURE0 + unit);
+        glBindTexture(GL_TEXTURE_2D, textureId);
+    }
+
+    void use() {
+        glBindTexture(GL_TEXTURE_2D, textureId);
+    }
+
+    bool generate(glm::vec<4, float> rgba) {
+        int width = 4, height = 4, channels = 4;
+        int pixels = width * height;
+        int size = pixels * channels;
+        unsigned char* image = new unsigned char[size];
+
+        glm::vec<4, unsigned char> vu = rgba * glm::vec4(255.0f);
+
+        if (!image) {
+            printf("Error generating image <%i,%i,%i,(%i),(%i),<%i,%i,%i,%i>>\n", width, height, channels, pixels, size, vu.r,vu.b,vu.g,vu.a);
+            return glfail;
+        }
+
+        for (int i = 0; i < pixels; i++) {
+            image[i * channels + 0] = vu.r;
+            image[i * channels + 1] = vu.g;
+            image[i * channels + 2] = vu.b;
+            image[i * channels + 3] = vu.a;
+        }
+
+        glGenTextures(1, &textureId);
+        glBindTexture(GL_TEXTURE_2D, textureId);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, image);
+        glGenerateMipmap(GL_TEXTURE_2D);
+
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+        return glsuccess;
     }
 
     bool load() {
@@ -331,9 +428,46 @@ struct shaderProgram_t {
     GLuint programId;
     std::vector<shader_t*> shaders;
 
+    shaderProgram_t():programId(gluninitialized) {
+
+    }
+
     template<typename ...Ts>
-    shaderProgram_t(Ts ...shaders)
-    :shaders({shaders...}),programId(gluninitialized) { }
+    shaderProgram_t(Ts ...shaders_)
+    :shaderProgram_t(){
+        this->shaders = {shaders_...};
+     }
+
+    shaderProgram_t(const shaderProgram_t &prg)
+    :shaderProgram_t() {
+        this->shaders = prg.shaders;
+     }
+
+    virtual bool get_uniform_locations() { return glsuccess; }
+
+    virtual GLint get_uniform_location(const char *name) {
+        return glGetUniformLocation(programId, name);
+    }
+
+    virtual void set_m4(const char *name, glm::mat4 mat) {
+        glUniformMatrix4fv(get_uniform_location(name), 1, GL_FALSE, glm::value_ptr(mat));
+    }
+
+    virtual void set_v3(const char *name, glm::vec3 vec) {
+        glUniform3fv(get_uniform_location(name), 1, glm::value_ptr(vec));
+    }
+
+    virtual void set_f(const char *name, float v) {
+        glUniform1f(get_uniform_location(name), v);
+    }
+
+    virtual void set_i(const char *name, int v) {
+        glUniform1i(get_uniform_location(name), v);
+    }
+
+    virtual void use() {
+        glUseProgram(programId);
+    }
 
     bool load() {
         for (auto *shader : shaders)
@@ -364,7 +498,81 @@ struct shaderProgram_t {
             return glfail;
         }
 
+        return glsuccess && get_uniform_locations();
+    }
+};
+
+struct material_t {
+    material_t(texture_t *diffuse, texture_t *specular, float gloss)
+    :diffuse(diffuse),specular(specular),shininess(gloss) { }
+    texture_t *diffuse, *specular;
+    float shininess;
+
+    void use(int unit = 0) {
+        diffuse->use(unit);
+        specular->use(unit + 1);
+    }
+};
+
+struct light_t {
+    using v3 = glm::vec3;
+    light_t(v3 position, v3 ambient, v3 diffuse, v3 specular)
+    :position(position),ambient(ambient),diffuse(diffuse),specular(specular) { } 
+    v3 position, ambient, diffuse, specular;
+};
+
+struct shader_materials_t : public shaderProgram_t {
+    shader_materials_t(shaderProgram_t prg)
+    :shaderProgram_t(prg),material(0),light(0) { }
+
+    struct Material_loc {
+        GLint diffuse, specular, shininess;
+    } material_loc;
+
+    material_t *material;
+    light_t *light;
+
+    struct Light_loc {
+        GLint position, ambient, diffuse, specular;
+    } light_loc;
+
+    GLint eyePos_loc;
+
+    void set_material(material_t *mat) {
+        this->material = mat;
+        set_i("material.diffuse", mat->diffuse->textureId);
+        set_i("material.specular", mat->specular->textureId);
+        set_f("material.shininess", mat->shininess);
+    }
+
+    void set_light(light_t *light) {
+        this->light = light;
+        set_v3("light.position", light->position);
+        set_v3("light.ambient", light->ambient);
+        set_v3("light.diffuse", light->diffuse);
+        set_v3("light.specular", light->specular);
+    }
+
+    void set_eye(glm::vec3 eye) {
+        set_v3("eyePos", eye);
+    }
+
+    bool get_uniform_locations() override {
+        material_loc.diffuse = glGetUniformLocation(programId, "material.diffuse");
+        material_loc.specular = glGetUniformLocation(programId, "material.specular");
+        material_loc.shininess = glGetUniformLocation(programId, "material.shininess");
+        light_loc.diffuse = glGetUniformLocation(programId, "light.diffuse");
+        light_loc.specular = glGetUniformLocation(programId, "light.specular");
+        light_loc.position = glGetUniformLocation(programId, "light.position");
+        light_loc.ambient = glGetUniformLocation(programId, "light.ambient");
+        eyePos_loc = glGetUniformLocation(programId, "eyePos");
         return glsuccess;
+    }
+
+    void use() override {
+        shaderProgram_t::use();
+        if (material)
+            material->use();
     }
 };
 
@@ -476,12 +684,10 @@ struct segment_t : public mesh_t {
     }
 
     void render() {
-        glUseProgram(mainProgram->programId);
-        glm::mat4 model = glm::mat4(1.);
-        glUniformMatrix4fv(uni_model, 1, GL_FALSE, glm::value_ptr(model));
+        mainProgram->use();
+        mainProgram->set_m4("model", glm::mat4(1.0f));
         renderDebug();
-        model = get_model_transform();
-        glUniformMatrix4fv(uni_model, 1, GL_FALSE, glm::value_ptr(model));
+        mainProgram->set_m4("model", get_model_transform());
         mesh_t::render();
     }
 
@@ -553,8 +759,8 @@ struct debug_info_t {
             mesh();
 
         glDisable(GL_CULL_FACE);
-        glUseProgram(textProgram->programId);
-        glBindTexture(GL_TEXTURE_2D, textTexture->textureId);
+        textProgram->use();
+        textTexture->use(0);
         glBindVertexArray(vao);
         glm::mat4 model = glm::translate(glm::mat4(1.0), glm::vec3(0.0));
         glUniformMatrix4fv(uni_model, 1, GL_FALSE, glm::value_ptr(model));
@@ -878,8 +1084,14 @@ void init() {
     textVertexShader = new shader_t("shaders/text_vertex_shader.glsl", GL_VERTEX_SHADER);
     textFragmentShader = new shader_t("shaders/text_fragment_shader.glsl", GL_FRAGMENT_SHADER);
 
-    mainProgram = new shaderProgram_t(mainVertexShader, mainFragmentShader);
+    mainProgram = new shader_materials_t(shaderProgram_t{mainVertexShader, mainFragmentShader});
     textProgram = new shaderProgram_t(textVertexShader, textFragmentShader);
+
+    mainTexture = new texture_t();
+    mainTexture->generate(glm::vec4(0.0f,0.0f,1.0f,1.0f));
+
+    robotMaterial = new material_t(mainTexture,mainTexture,0.2f);
+    mainProgram->set_material(robotMaterial);
 
     debugInfo = new debug_info_t();
 
@@ -917,6 +1129,7 @@ void load() {
 }
 
 void framebuffer_size_callback(GLFWwindow *window, int width, int height);
+void mouse_button_callback(GLFWwindow *window, int button, int action, int mods);
 void cursor_position_callback(GLFWwindow *window, double x, double y);
 void handle_keyboard(GLFWwindow* window, float deltaTime);
 
@@ -965,7 +1178,7 @@ int main() {
 
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
     glfwSetCursorPosCallback(window, cursor_position_callback);
-    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+    glfwSetMouseButtonCallback(window, mouse_button_callback);
     glfwSwapInterval(1);
 
     lastTime = glfwGetTime();
@@ -996,7 +1209,8 @@ int main() {
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-        glm::mat4 model = glm::scale(glm::mat4(1.0), glm::vec3(0.1));
+        glm::mat4 model(1.0f);
+        //glm::mat4 model = glm::scale(glm::mat4(1.0), glm::vec3(0.1));
         //glm::mat4 model = glm::translate(glm::mat4(1.0), glm::vec3(0));
         glm::mat4 view = camera->getViewMatrix();
         glm::mat4 projection = glm::perspective(glm::radians(camera->fov),
@@ -1005,12 +1219,22 @@ int main() {
         norm = glm::inverse(norm);
         norm = glm::transpose(norm);
 
-        glUseProgram(mainProgram->programId);
+        mainProgram->use();
 
         glUniformMatrix4fv(uni_model, 1, GL_FALSE, glm::value_ptr(model));
         glUniformMatrix4fv(uni_view, 1, GL_FALSE, glm::value_ptr(view));
         glUniformMatrix4fv(uni_projection, 1, GL_FALSE, glm::value_ptr(projection));
-        glUniform3fv(uni_norm, 1, glm::value_ptr(norm));
+        glUniformMatrix3fv(uni_norm, 1, GL_FALSE, glm::value_ptr(norm));
+
+        glm::vec3 diffuse(0.6f), specular(0.2f), ambient(0.0f);
+
+
+        mainProgram->set_v3("eyePos", camera->position);
+        mainProgram->set_v3("light.position", glm::vec3(5.0f, 15.0f, 5.0f));
+        mainProgram->set_v3("light.ambient", ambient);
+        mainProgram->set_v3("light.diffuse", diffuse);
+        mainProgram->set_v3("light.specular", specular);
+        mainProgram->set_f("material.shininess", 2.0f);
 
         /*
         glBegin(GL_TRIANGLES);
@@ -1042,6 +1266,10 @@ void framebuffer_size_callback(GLFWwindow *window, int width, int height) {
     ::width = width;
     ::height = height;
     glViewport(0, 0, width, height);
+}
+
+void mouse_button_callback(GLFWwindow *window, int button, int action, int mods) {
+    camera->mousePress(window, button, action, mods);
 }
 
 void cursor_position_callback(GLFWwindow *window, double x, double y) {

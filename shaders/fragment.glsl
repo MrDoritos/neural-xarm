@@ -24,6 +24,7 @@ const float gamma = 1.0;
 uniform vec3 eyePos;
 uniform Material material;
 uniform Light light;
+uniform mat3 norm;
 
 void main() {
     //// FragColor = vec4(0, 1.0, 0, 1.0);
@@ -33,16 +34,29 @@ void main() {
     //FragColor.a = 1.0;
     //return;
 
-    vec3 view = normalize(eyePos - worldPos);
-    float approach = abs(dot(view, normal));
-    //float approach = dot(normal, vec3(0,1,0)) + 1.0;
+    mat4 model = mat4(-norm);
+    mat3 mv_norm = mat3(transpose(inverse(model)));
 
-    vec3 diffuseColor = pow(texture(material.diffuse, texCoord).rgb, vec3(gamma));
-    vec3 specularColor = pow(texture(material.specular, texCoord).rgb, vec3(gamma));    
+    vec4 l_pos = vec4(0,20,0,1);
+    //vec3 l_dir = normalize(l_pos);
+    vec3 v_normal = normalize(normal);
+    vec3 w_normal = normalize(normal * mv_norm);
+    vec4 w_4 = vec4(worldPos.xyz, 1.0);
+
+    vec3 normalMix = normalize(normal) * norm;
+    vec3 view = normalize(eyePos - worldPos);
+
+    float approach = abs(dot(view, normalMix));
+    vec3 v_to_l = vec3(l_pos - model * w_4);
+    vec3 l_dir = normalize(v_to_l);
+    float dotSky = clamp(dot(w_normal, l_dir)*0.1,0.0,1.0);
+
+    vec3 diffuseColor = texture(material.diffuse, texCoord).rgb;
+    vec3 specularColor = texture(material.specular, texCoord).rgb;    
     
     vec3 sDiffuse = light.diffuse * diffuseColor;
-    vec3 sAmbient = light.ambient * diffuseColor;
-    vec3 sSpecular = light.specular * specularColor * pow(approach, material.shininess);
+    vec3 sAmbient = light.ambient * diffuseColor * dotSky;// * vec3(material.shininess);
+    vec3 sSpecular = light.specular * specularColor;
 
     vec3 sMix = sDiffuse + sAmbient + sSpecular;
 

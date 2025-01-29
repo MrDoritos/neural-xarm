@@ -12,11 +12,13 @@ uniform mat4 model, view, projection;
 uniform mat3 norm;
 
 void main() {
-    gl_Position = projection * view * model * vec4(aPosition, 1.0);
+    mat4 mvp = projection * view * model;
+    gl_Position = mvp * vec4(aPosition, 1.0);
     worldPos = (model * vec4(aPosition, 1.0)).xyz;
     //normal = normalize((norm * vec3(0.5)) * (aNormal * vec3(0.5)));
     //normal = normalize((norm * vec3(2.2)) * (aNormal * vec3(0.2)));
-    //normal = aNormal;
-    normal = normalize(aNormal * norm);
+    //normal = normalize(vec3(vec4(aNormal,0.0) * model));
+    //normal = normalize(aNormal * norm);
+    normal = aNormal;
     texCoord = vec2(aTexCoord.x, -aTexCoord.y);
 }

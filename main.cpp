@@ -76,7 +76,7 @@ double lastTime, deltaTime;
 glm::vec4 x_axis(1,0,0,0), y_axis(0,1,0,0), z_axis(0,0,1,0);
 
 struct camera_t {
-    camera_t() {
+    camera_t(glm::vec3 position = {0,0,0.}, float pitch = 0., float yaw = 0.) {
         position = glm::vec3(0.0f, 0.0f, 0.0f);
         up = glm::vec3(0.0f, 1.0f, 0.0f);
         front = glm::vec3(0.0f, 0.0f, -1.0f);
@@ -88,6 +88,10 @@ struct camera_t {
         yaw = 0.0f;
         last_mouse[0] = 0.0f;
         last_mouse[1] = 0.0f;
+
+        this->position = position;
+        this->pitch = pitch;
+        this->yaw = yaw;
 
         calculate_normals();
     }
@@ -408,6 +412,8 @@ struct texture_t {
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
+        stbi_image_free(image);
+
         return glsuccess;
     }
 };
@@ -684,7 +690,9 @@ struct segment_t : public mesh_t {
     }
 
     static glm::vec3 matrix_to_vector(glm::mat4 mat) {
-        return glm::normalize(mat[2]);
+        return glm::normalize(glm::vec3(mat[2]));
+        //return glm::normalize(glm::vec3(mat * glm::vec4(1.)));
+        //return glm::normalize(glm::mat3(mat) * glm::vec3(1.));
     }
 
     float get_length() {
@@ -782,25 +790,37 @@ struct segment_t : public mesh_t {
     void render() {
         mainProgram->use();
         mainProgram->set_camera(camera, glm::mat4(1.0f));
-        renderDebug();
+        if (debug_mode)
+            renderDebug();
         mainProgram->set_camera(camera, get_model_transform());
+        if (debug_mode)
+            mainProgram->set_v3("light.ambient", debug_color);
         mesh_t::render();
     }
 
     float model_scale = 0.1;
     glm::vec3 direction, rotation_axis, initial_direction;
     segment_t *parent;
+    glm::vec3 debug_color;
     float length, rotation;
     int servo_num;
 };
 
 struct kinematics_t {
-    static glm::vec2 map_to_xy(glm::vec3 pos, float r = 0.0f, glm::vec3 a = -z_axis, glm::vec3 o = glm::vec3(0.0f), glm::vec3 t = glm::vec3(0.0f)) {
+    static glm::vec3 map_to_xy(glm::vec3 pos, float r = 0.0f, glm::vec3 a = -z_axis, glm::vec3 o = glm::vec3(0.0f), glm::vec3 t = glm::vec3(0.0f)) {
         //auto mapped = segment_t::rotate_vector_3d(pos - o, a, r);
-        auto matrix = glm::translate(glm::mat4(1.0f), pos - o);
+        //auto matrix = glm::translate(glm::mat4(1.0f), pos - o);
+        auto matrix = glm::mat4(1.0);
         matrix = glm::rotate(matrix, glm::radians(r), a);
-        auto npos = glm::vec3(matrix[3].x, matrix[3].z, 0);
-        return npos + t;
+        //auto npos = glm::vec3(matrix[3].x, matrix[3].z, 0);
+        //auto _4npos = glm::vec4(matrix[0] + matrix[1] + matrix[2]);
+        //auto npos = glm::vec3(_4npos[0], _4npos[2], _4npos[1]);
+        //return npos + t;
+        auto _pos = pos - o;
+        //_pos = pos;
+        //matrix = glm::translate(matrix, -o);
+
+        return glm::vec3(matrix * glm::vec4(_pos.x,_pos.y,_pos.z,1)) + t;
     }
 
     bool solve_inverse(glm::vec3 coordsIn) {
@@ -833,11 +853,14 @@ struct kinematics_t {
 
         glm::vec3 seg_5 = s5->get_origin();
         glm::vec3 seg_5_real = glm::vec3(seg_5.x, seg_5.z, seg_5.y);
+        //auto seg5_2d = glm::vec3(seg_5.x, seg_5.z, 0);
+        glm::vec3 target_for_calc = target_coords;
 
-        auto target_pl3d = map_to_xy({target_coords.x, target_coords.z, target_coords.y}, deg_6, -z_axis, seg_5_real);
-        auto target_pl2d = glm::vec2(target_pl3d);
+        auto target_pl3d = map_to_xy(target_for_calc, deg_6, y_axis, seg_5);
+        auto target_pl2d = glm::vec2(target_pl3d.x, target_pl3d.y);
         auto plo3d = glm::vec3(0.0f);
         auto plo2d = glm::vec2(0.0f);
+        //plo2d = target_pl2d;
         auto pl3d = glm::vec3(500.0f, 0.0f, 0.0f);
         auto pl2d = glm::vec2(pl3d);
         auto s2d = glm::vec2(500);
@@ -846,11 +869,11 @@ struct kinematics_t {
         remaining_segments.assign(segments.begin() + 2, segments.end());
         //std::reverse(remaining_segments.begin(), remaining_segments.end());
 
-        auto prev_origin = target_pl2d;
+        glm::vec2 prev_origin = target_pl2d;
         std::vector<glm::vec2> new_origins;
 
         if (debug_mode)
-            printf("target_pl2d <%.2f,%.2f> target_pl3d <%.2f,%.2f,%.2f> seg_5 <%.2f,%.2f,%.2f> deg_6: %.2f\n", target_pl2d.x, target_pl2d.y, target_coords.x, target_coords.y, target_coords.z, seg_5.x, seg_5.y, seg_5.z, deg_6);
+            printf("target_pl2d <%.2f,%.2f> target_pl3d <%.2f,%.2f,%.2f> target_real <%.2f,%.2f,%.2f> seg_5 <%.2f,%.2f,%.2f> deg_6: %.2f\n", target_pl2d.x, target_pl2d.y, target_pl3d.x, target_pl3d.y, target_pl3d.z, target_coords.x, target_coords.y, target_coords.z, seg_5.x, seg_5.y, seg_5.z, deg_6);
 
         while (true) {
             if (remaining_segments.size() < 1) {
@@ -869,8 +892,9 @@ struct kinematics_t {
             float dist_to_segment = total_length - segment_radius;
             float segment_min = total_length - (segment_radius * 2);
             float dist_origin_to_prev = glm::distance<2, float>(plo2d, prev_origin);
-            auto mag = glm::normalize(prev_origin - plo2d);
+            glm::vec2 mag = glm::normalize(prev_origin - plo2d);
             
+            seg->debug_color = {0.,1.,0};
             bool skip_optim = false;
 
             if (remaining_segments.size() < 3) {
@@ -882,7 +906,8 @@ struct kinematics_t {
             float equal_mp = ((dist_origin_to_prev * dist_origin_to_prev) -
                         (segment_radius * segment_radius) +
                         (dist_to_segment * dist_to_segment)) /
-                        (dist_origin_to_prev * dist_origin_to_prev);
+                        (2 * dist_origin_to_prev);
+
             float rem_dist = dist_origin_to_prev - equal_mp;
             float rem_min = -segment_radius/2.0f;
             float rem_retract = 0.0f;
@@ -907,20 +932,37 @@ struct kinematics_t {
                     puts("Not enough overlap");
                 if (debug_mode)
                     printf("rem_dist: %.2f rem_max: %.2f\n", rem_dist, rem_max);
+                seg->debug_color = {0.,0.,0.};
             }
 
             if (!skip_optim) {
                 if (segment_radius > dist_origin_to_prev) {
                     auto v = rem_extend - (segment_radius - dist_origin_to_prev);
                     equal_mp = dist_origin_to_prev - v;
+                    if (debug_mode) {
+                        seg->debug_color = {1.,0,0};
+                        puts("Too close to origin");
+                    }
                 } else
                 if (rem_dist < rem_extend && total_length > dist_origin_to_prev) {
                     equal_mp = dist_origin_to_prev - rem_extend;
+                    if (debug_mode) {
+                        seg->debug_color = {1.,1,1};
+                        puts("Maintain center of gravity");
+                    }
                 } else
                 if (rem_dist < rem_retract && total_length > dist_origin_to_prev) {
                     equal_mp = dist_origin_to_prev - rem_retract;
+                    if (debug_mode) {
+                        puts("Too much leftover length");
+                        seg->debug_color = {1.,.5,.5};
+                    }
                 } else
                 if (rem_dist < rem_ex2 && rem_dist >= rem_extend && total_length > dist_origin_to_prev) {
+                    if (debug_mode) {
+                        puts("Too much leftover length");
+                        seg->debug_color = {0.,.5,.5};
+                    }
                     auto r = rem_ex2 - rem_extend;
                     r = (rem_dist - rem_extend) / r;
                     auto v = r / 2.0f;
@@ -934,11 +976,13 @@ struct kinematics_t {
                 if (rem_dist < rem_min) {
                     if (debug_mode)
                         puts("Too much overlap");
+                        seg->debug_color = {0.25,0.25,0.25};
                     rem_dist = rem_min;
                 } else
                 if (rem_dist > rem_max) {
                     if (debug_mode)
                         puts("Not enough overlap");
+                        seg->debug_color = {0,0,0.};
                 } else {
                     rem_dist = dist_origin_to_prev - equal_mp;
                 }
@@ -948,12 +992,19 @@ struct kinematics_t {
                 printf("rem_dist: %.2f, rem_max: %.2f, equal_mp: %.2f, dist_origin_to_prev: %.2f, dist_to_segment: %.2f\n", rem_dist, rem_max, equal_mp, dist_origin_to_prev, dist_to_segment);
 
             auto mp_vec = mag * equal_mp;
-            auto n = sqrtf((segment_radius * segment_radius) - (rem_dist * rem_dist));
+            //auto n = sqrtf((segment_radius - rem_dist) * (segment_radius - rem_dist));
+            auto n = sqrtf(abs((segment_radius * segment_radius) - (rem_dist * rem_dist)));
             auto o = atan2(mag.y, mag.x) - (M_PI / 2.0f);
-            auto new_mag = glm::vec2(cosf(o),sinf(o));
+            auto new_mag = glm::normalize(glm::vec2(cosf(o),sinf(o)));
             new_origin = mp_vec + (new_mag * n);
             auto new_origin3d = glm::vec3(new_origin.x, new_origin.y, 0.0f);
             auto dist_new_prev = glm::distance<2, float>(new_origin, prev_origin);
+
+            if (debug_mode)
+                printf("mp_vec <%.2f %.2f>, segment_radius: %.2f, rem_dist: %.2f, n: %.2f, o: %.2f, new_mag <%.2f,%.2f>, dist_new_prev: %.2f\n", mp_vec[0], mp_vec[1], segment_radius, rem_dist, n, o, new_mag[0], new_mag[1], dist_new_prev);
+
+            if (calculation_failure)
+                seg->debug_color = {1.0,0,0};
 
             float tolerable_distance = 10.0f;
 
@@ -969,8 +1020,8 @@ struct kinematics_t {
                 calculation_failure = true;
             }
 
-            if (isnot_real(new_origin.x) || isnot_real(new_origin.y))
-                new_origin = prev_origin;//glm::vec2(0.0f);
+            //if (isnot_real(new_origin.x) || isnot_real(new_origin.y))
+            //    new_origin = prev_origin;//glm::vec2(0.0f);
 
             nocalc:;
 
@@ -1023,7 +1074,7 @@ struct kinematics_t {
 
                 prev = cur;
                 prevmag = mag;
-                prevrot += rot;
+                prevrot = prevrot + rot;
             }
         }
 
@@ -1250,18 +1301,26 @@ struct ui_element_t {
         return ui;
     }
 
+    virtual bool redraw() {
+        modified = true;
+        return run_children(&ui_element_t::redraw);
+    }
+
     virtual bool render() {
         if (hidden)
             return glsuccess;
 
         auto ret = run_children(&ui_element_t::render);
+
         if (pre_render_callback)
             pre_render_callback();
+
         return ret;
     }
 
     virtual bool mesh() {
         modified = false;
+        vertexCount = 0;
 
         return glsuccess;
     }
@@ -1516,12 +1575,12 @@ float precise_factor = 20.;
 
 struct ui_slider_t : public ui_element_t {
     using ui_slider_v = float;
-    using callback_t = std::function<void()>;
+    using callback_t = std::function<void(ui_slider_t*, ui_slider_v)>;
 
     ui_slider_v min, max, value, drag_value, initial_value;
     bool cursor_drag, limit, skip_text;
     glm::vec2 cursor_start, drag_start;
-    std::function<void()> value_change_callback;
+    callback_t value_change_callback;
 
     ui_text_t *title_text, *min_text, *max_text, *value_text;
     float title_pos_y;
@@ -1583,7 +1642,7 @@ struct ui_slider_t : public ui_element_t {
         }
         this->value = _vset;
         if (value_change_callback)
-            value_change_callback();
+            value_change_callback(this, this->value);
         modified = true;
     }
 
@@ -1878,14 +1937,14 @@ struct ui_toggle_t : public ui_element_t {
     }
 };
 
-void servo_slider_update() {
+void servo_slider_update(ui_slider_t* ui, ui_slider_t::ui_slider_v value) {
     s6->rotation = slider6->value;
     s5->rotation = slider5->value;
     s4->rotation = slider4->value;
     s3->rotation = slider3->value;
 }
 
-void update_whatever() {
+void update_whatever(ui_slider_t* ui, ui_slider_t::ui_slider_v value) {
     for (int i = 0; i < slider_whatever.size(); i++) {
         float value = slider_whatever.at(i)->value;
         if (debug_mode)

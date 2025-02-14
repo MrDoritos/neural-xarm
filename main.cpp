@@ -27,6 +27,7 @@ struct shader_materials_t;
 struct segment_t;
 struct material_t;
 struct kinematics_t;
+struct debug_object_t;
 struct debug_info_t;
 struct ui_element_t;
 struct ui_text_t;
@@ -52,6 +53,7 @@ material_t *robotMaterial;
 camera_t *camera;
 segment_t *sBase, *s6, *s5, *s4, *s3;
 std::vector<segment_t*> segments;
+debug_object_t *debug_objects;
 ui_text_t *debugInfo;
 ui_slider_t *slider6, *slider5, *slider4, *slider3, *slider_ambient, *slider_diffuse, *slider_specular, *slider_shininess;
 std::vector<ui_slider_t*> slider_whatever;
@@ -213,23 +215,42 @@ struct camera_t {
 };
 
 struct mesh_t {
-    std::vector<float> coords, normals;
-    std::vector<unsigned int> tris, solids;
-    GLuint vao, vbo, vertexCount;
-    glm::vec3 minBound, maxBound;
-    glm::vec3 position;
-    
-    mesh_t() {
-        position = glm::vec3(0.0f);
-    }
-
-    struct _vnt {
+    struct vertex_t {
         glm::vec3 vertex;
         glm::vec3 normal;
         glm::vec2 tex;
     };
 
+    std::vector<vertex_t> verticies;
+    GLuint vao, vbo, vertexCount;
+    glm::vec3 minBound, maxBound;
+    glm::vec3 position;
+    bool modified;
+    
+    mesh_t() {
+        clear();
+        position = glm::vec3(0.0f);
+
+        glGenVertexArrays(1, &vao);
+        glGenBuffers(1, &vbo);
+    }
+
+    ~mesh_t() {
+        glDeleteBuffers(1, &vbo);
+        glDeleteVertexArrays(1, &vao);
+    }
+
+    void clear() {
+        verticies.clear();
+
+        vertexCount = 0;
+        modified = false;
+    }
+
     bool load(const char *filename) {
+        std::vector<float> coords, normals;
+        std::vector<unsigned int> tris, solids;
+        clear();
         stl_reader::ReadStlFile(filename, coords, normals, tris, solids);
         
         if (tris.size() < 1) {
@@ -245,13 +266,10 @@ struct mesh_t {
         auto minNormal = minVec;
         auto maxNormal = maxVec;
 
-        glGenVertexArrays(1, &vao);
-        glGenBuffers(1, &vbo);
-
         vertexCount = tris.size();
         int triCount = vertexCount / 3;
 
-        _vnt *verticies = new _vnt[vertexCount];
+        verticies.reserve(vertexCount);
 
         {
             for (int iT = 0; iT < triCount; iT++) {
@@ -286,52 +304,57 @@ struct mesh_t {
 
             for (int i = 0; i < vertexCount; i++) {
                 auto vertex = verticies[i].vertex;
-                //printf("x: %f, y: %f, z: %f\n", vertex.x, vertex.y, vertex.z);
-                /*minBound.x = std::min(minBound.x, verticies[i].vertex.x);
-                minBound.y = std::min(minBound.y, verticies[i].vertex.y);
-                minBound.z = std::min(minBound.z, verticies[i].vertex.z);
-                maxBound.x = std::max(maxBound.x, verticies[i].vertex.x);
-                maxBound.y = std::max(maxBound.y, verticies[i].vertex.y);
-                maxBound.z = std::max(maxBound.z, verticies[i].vertex.z);*/
+
                 set_max(maxBound, verticies[i].vertex);
                 set_min(minBound, verticies[i].vertex);
                 set_max(maxNormal, verticies[i].normal);
                 set_min(minNormal, verticies[i].normal);
             }
 
-            size_t coordSize = sizeof verticies[0].vertex;
-            size_t normSize = sizeof verticies[0].normal;
-            size_t texSize = sizeof verticies[0].tex;
-
-            size_t stride = sizeof verticies[0];
-
-
-            glBindVertexArray(vao);
-            glBindBuffer(GL_ARRAY_BUFFER, vbo);
-            glBufferData(GL_ARRAY_BUFFER, vertexCount * stride, verticies, GL_STATIC_DRAW);
-            
-            glEnableVertexAttribArray(0);
-            glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, (void*) (0));
-            glEnableVertexAttribArray(1);
-            glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, (void*) (normSize));
-            glEnableVertexAttribArray(2);
-            glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, (void*) (normSize + texSize));
-
-            glBindVertexArray(0);
-
-            if (debug_mode) {
-                printf("Uploaded %i verticies, stride: %li, size: %li, vbo: %i, addr: %p\n", vertexCount, stride, vertexCount * sizeof verticies[0], vbo, verticies);
-                printf("Vertex <min,max> <%f,%f><%f,%f><%f,%f>\n", minBound.x, maxBound.x, minBound.y, maxBound.y, minBound.z, maxBound.z);
-                printf("Normal <min,max> <%f,%f><%f,%f><%f,%f>\n", minNormal.x, maxNormal.x, minNormal.y, maxNormal.y, minNormal.z, maxNormal.z);
-            }
         }
 
-        delete [] verticies;
+        modified = true;
 
         return glsuccess;
     }
 
+    void mesh() {
+        size_t coordSize = sizeof verticies[0].vertex;
+        size_t normSize = sizeof verticies[0].normal;
+        size_t texSize = sizeof verticies[0].tex;
+
+        size_t stride = sizeof verticies[0];
+
+
+        glBindVertexArray(vao);
+        glBindBuffer(GL_ARRAY_BUFFER, vbo);
+        glBufferData(GL_ARRAY_BUFFER, vertexCount * stride, verticies.data(), GL_STATIC_DRAW);
+        
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, (void*) (0));
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, (void*) (normSize));
+        glEnableVertexAttribArray(2);
+        glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, (void*) (normSize + texSize));
+
+        glBindVertexArray(0);
+
+        if (debug_mode) {
+            printf("Uploaded %i verticies, stride: %li, size: %li, vbo: %i, addr: %p\n", vertexCount, stride, vertexCount * sizeof verticies[0], vbo, verticies.data());
+            printf("Vertex <min,max> <%f,%f><%f,%f><%f,%f>\n", minBound.x, maxBound.x, minBound.y, maxBound.y, minBound.z, maxBound.z);
+            //printf("Normal <min,max> <%f,%f><%f,%f><%f,%f>\n", minNormal.x, maxNormal.x, minNormal.y, maxNormal.y, minNormal.z, maxNormal.z);
+        }
+
+        modified = false;
+    }
+
     void render() {
+        if (modified)
+            mesh();
+
+        if (!vertexCount)
+            return;
+
         //printf("Draw %i with %i verticies\n", vbo, vertexCount);
         glBindVertexArray(vao);
         glDrawArrays(GL_TRIANGLES, 0, vertexCount);
@@ -1422,6 +1445,10 @@ struct ui_element_t {
     }
 };
 
+struct debug_object_t : public mesh_t {
+    
+};
+
 struct ui_text_t : public ui_element_t {
     std::string string_buffer;
     int currentX, currentY;
@@ -2072,6 +2099,7 @@ int init() {
     uiHandler = new ui_element_t(window, {-1.0f,-1.0f,2.0f,2.0f});
     //uiHandler->add_child(new ui_text_t(window, {0.0,0.0,.1,.1}, "Hello World!"));
     debugInfo = uiHandler->add_child(new ui_text_t(window, {-1.0f,-1.0f,2.0f,2.0f}, "", update_debug_info));
+    debug_objects = new debug_object_t();
     ui_servo_sliders = uiHandler->add_child(new ui_element_t(window, uiHandler->XYWH));
 
     glm::vec4 sliderPos = {0.45, -0.95,0.5,0.1};
@@ -2197,6 +2225,9 @@ int main() {
         for (auto *segment : segments)
             segment->render();
 
+        if (debug_mode)
+            debug_objects->render();    
+        
         if (uiHandler->render())
             break;
 

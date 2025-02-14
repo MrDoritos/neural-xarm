@@ -240,7 +240,7 @@ struct mesh_t {
         glDeleteVertexArrays(1, &vao);
     }
 
-    void clear() {
+    virtual void clear() {
         verticies.clear();
 
         vertexCount = 0;
@@ -318,7 +318,7 @@ struct mesh_t {
         return glsuccess;
     }
 
-    void mesh() {
+    virtual void mesh() {
         size_t coordSize = sizeof verticies[0].vertex;
         size_t normSize = sizeof verticies[0].normal;
         size_t texSize = sizeof verticies[0].tex;
@@ -348,7 +348,7 @@ struct mesh_t {
         modified = false;
     }
 
-    void render() {
+    virtual void render() {
         if (modified)
             mesh();
 
@@ -701,6 +701,37 @@ struct shader_text_t : public shaderProgram_t {
     }
 };
 
+struct debug_object_t : public mesh_t {
+    std::vector<std::pair<glm::vec3, glm::vec3>> _lines;
+
+    void add_line(glm::vec3 origin, glm::vec3 end) {
+        _lines.push_back({origin, end});
+    }
+
+    void clear() override {
+        _lines.clear();
+
+        mesh_t::clear();
+    }
+
+    void render() override {
+        mainProgram->use();
+        mainProgram->set_camera(camera, glm::mat4(1.0f));
+
+        modified = true;
+        mesh_t::render();
+
+        glBegin(GL_LINES);
+        for (auto &l : _lines) {
+            glVertex3f(l.first.x, l.first.y, l.first.z);
+            glVertex3f(l.second.x, l.second.y, l.second.z);
+        }
+        glEnd();
+
+        this->clear();
+    }    
+};
+
 struct segment_t : public mesh_t {
     segment_t(segment_t *parent, glm::vec3 rotation_axis, glm::vec3 initial_direction, float length, int servo_num) {
         this->parent = parent;
@@ -777,11 +808,14 @@ struct segment_t : public mesh_t {
     }
 
     void renderVector(glm::vec3 origin, glm::vec3 end) {
+        /*
         glBegin(GL_LINES);
             glColor3f(1.0,0,0);
             glVertex3f(origin.x,origin.y,origin.z);
             glVertex3f(end.x,end.y,end.z);
         glEnd();
+        */
+        debug_objects->add_line(origin, end);
     }
 
     void renderMatrix(glm::vec3 origin, glm::mat4 mat) {
@@ -795,7 +829,7 @@ struct segment_t : public mesh_t {
     void renderDebug() {
         glm::vec3 origin = get_origin();
         renderVector(origin, get_origin());
-        renderVector(origin, get_segment_vector());
+        renderVector(origin, origin + get_segment_vector());
 
         auto rot_mat = get_rotation_matrix();
         auto tran_rot_mat = glm::translate(rot_mat, origin);
@@ -1443,10 +1477,6 @@ struct ui_element_t {
     virtual bool onCursor(double x, double y) {
         return run_children(&ui_element_t::onCursor, x, y);
     }
-};
-
-struct debug_object_t : public mesh_t {
-    
 };
 
 struct ui_text_t : public ui_element_t {

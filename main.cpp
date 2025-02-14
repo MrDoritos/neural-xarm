@@ -703,13 +703,19 @@ struct shader_text_t : public shaderProgram_t {
 
 struct debug_object_t : public mesh_t {
     std::vector<std::pair<glm::vec3, glm::vec3>> _lines;
+    std::vector<std::pair<glm::vec3, float>> _spheres;
 
     void add_line(glm::vec3 origin, glm::vec3 end) {
         _lines.push_back({origin, end});
     }
 
+    void add_sphere(glm::vec3 origin, float radius) {
+        _spheres.push_back({origin, radius});
+    }
+
     void clear() override {
         _lines.clear();
+        _spheres.clear();
 
         mesh_t::clear();
     }
@@ -725,6 +731,35 @@ struct debug_object_t : public mesh_t {
         for (auto &l : _lines) {
             glVertex3f(l.first.x, l.first.y, l.first.z);
             glVertex3f(l.second.x, l.second.y, l.second.z);
+        }
+        glEnd();
+
+        glBegin(GL_QUADS);
+        for (auto &s : _spheres) {
+            glm::vec3 ws = s.first;
+            float r = s.second * 5;
+            //ws = ws / (camera->front * glm::mat3(camera->get_projection_matrix()));
+            glm::vec3 cr = camera->right * glm::vec3(0.5f) * r;
+            glm::vec3 cu = camera->up * glm::vec3(0.5f) * r;
+            glm::vec3 v1 = ws + cr + cu,
+                      v2 = ws + cr - cu, 
+                      v3 = ws - cr - cu, 
+                      v4 = ws - cr + cu;
+
+            auto glv = [](glm::vec3 p) {
+                glVertex3f(p.x, p.y, p.z);
+            };
+
+            glv(v1);
+            glv(v2);
+            glv(v3);
+            glv(v4);
+            /*
+            glVertex3f(ws.x - r, ws.y - r, ws.z);
+            glVertex3f(ws.x - r, ws.y + r, ws.z);
+            glVertex3f(ws.x + r, ws.y + r, ws.z);
+            glVertex3f(ws.x + r, ws.y - r, ws.z);
+            */
         }
         glEnd();
 
@@ -828,7 +863,8 @@ struct segment_t : public mesh_t {
 
     void renderDebug() {
         glm::vec3 origin = get_origin();
-        renderVector(origin, get_origin());
+        debug_objects->add_sphere(origin, model_scale);
+        debug_objects->add_sphere(origin + get_segment_vector(), model_scale);
         renderVector(origin, origin + get_segment_vector());
 
         auto rot_mat = get_rotation_matrix();
@@ -888,6 +924,7 @@ struct kinematics_t {
         bool calculation_failure = false;
 
         auto target_coords = coordsIn;
+        target_coords.z = -target_coords.z;
         auto target_2d = glm::vec2(target_coords.x, target_coords.z);
 
         float rot_out[5];
@@ -2039,6 +2076,8 @@ void update_debug_info() {
 
         glm::vec3 s3_t = s3->get_segment_vector() + s3->get_origin();
         
+        debug_objects->add_sphere(robot_target, s3->model_scale);
+
         snprintf(char_buf, bufsize, 
         "%.0f FPS\nCamera %.2f %.2f %.2f\nFacing %.2f %.2f\nTarget %.2f %.2f %.2f\ns3 %.2f %.2f %.2f\nRotation %.2f %.2f %.2f %.2f",
         fps, 
@@ -2356,16 +2395,16 @@ void handle_keyboard(GLFWwindow* window, float deltaTime) {
 
             switch (i) {
                 case 0:
-                    robot_target.z += movementFactor * deltaTime;
+                    robot_target.x += movementFactor * deltaTime;
                     break;
                 case 1:
-                    robot_target.z -= movementFactor * deltaTime;
-                    break;
-                case 2:
                     robot_target.x -= movementFactor * deltaTime;
                     break;
+                case 2:
+                    robot_target.z -= movementFactor * deltaTime;
+                    break;
                 case 3:
-                    robot_target.x += movementFactor * deltaTime;
+                    robot_target.z += movementFactor * deltaTime;
                     break;
                 case 4:
                     robot_target.y -= movementFactor * deltaTime;

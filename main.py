@@ -12,7 +12,7 @@ import vedo.vtkclasses
 import pygame
 import importlib
 
-xarm = importlib.import_module('xarm_control')
+from thirdparty import xarm_control as xarm
 
 plt = Plotter(title='xArm')
 

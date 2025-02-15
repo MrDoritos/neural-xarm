@@ -1,5 +1,7 @@
 # Advanced xArm Control Project
 
+![](/assets/xarm.gif)
+
 Project for controlling an xArm robotic arm. Eventually will also include other robotic arms.
 
 Using a neural network for control was an initial idea, however when you consider you need a working movement model to generate the data to train a neural network I put the cart before the horse. I still think it would be a fun idea to pursue.

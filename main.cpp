@@ -2,6 +2,10 @@
 #include <limits>
 #include <chrono>
 #include <functional>
+#include <algorithm>
+#include <map>
+#include <string>
+#include <format>
 
 #include <GL/gl.h>
 #include <GLES3/gl3.h>
@@ -32,11 +36,14 @@ struct debug_info_t;
 struct ui_element_t;
 struct ui_text_t;
 struct ui_slider_t;
+struct ui_toggle_t;
+struct joystick_t;
 
 glm::vec<4, int> initial_window;
 glm::vec<4, int> current_window;
 bool fullscreen;
 bool debug_mode = false;
+bool userinput_kinematic = false;
 float mouseSensitivity = 0.05f;
 float preciseSpeed = 0.1f;
 float movementSpeed = 10.0f;
@@ -55,16 +62,20 @@ segment_t *sBase, *s6, *s5, *s4, *s3;
 std::vector<segment_t*> segments;
 debug_object_t *debug_objects;
 ui_text_t *debugInfo;
+ui_toggle_t *debugToggle;
 ui_slider_t *slider6, *slider5, *slider4, *slider3, *slider_ambient, *slider_diffuse, *slider_specular, *slider_shininess;
 std::vector<ui_slider_t*> slider_whatever;
 ui_element_t *uiHandler, *ui_servo_sliders;
 kinematics_t *kinematics;
-glm::vec3 robot_target(0.0f);
+glm::vec3 robot_target;
+joystick_t *joysticks;
 
 void framebuffer_size_callback(GLFWwindow *window, int width, int height);
 void mouse_button_callback(GLFWwindow *window, int button, int action, int mods);
 void cursor_position_callback(GLFWwindow *window, double x, double y);
 void handle_keyboard(GLFWwindow* window, float deltaTime);
+void joystick_callback(int jid, int event);
+void reset();
 
 using hrc = std::chrono::high_resolution_clock;
 using tp = std::chrono::time_point<hrc>;
@@ -166,6 +177,14 @@ struct camera_t {
 
         calculate_normals();
         //printf("LookAt: yaw: %f pitch: %f\n", yaw, pitch);
+    }
+
+    void joystick_move(GLFWwindow *window, float pitch, float yaw) {
+        this->yaw += yaw;
+        this->pitch += pitch;
+        this->pitch = std::max(std::min(this->pitch, 89.9f), -89.9f);
+
+        calculate_normals();
     }
 
     void keyboard(GLFWwindow *window, float deltaTime) {
@@ -899,292 +918,6 @@ struct segment_t : public mesh_t {
     int servo_num;
 };
 
-struct kinematics_t {
-    static glm::vec3 map_to_xy(glm::vec3 pos, float r = 0.0f, glm::vec3 a = -z_axis, glm::vec3 o = glm::vec3(0.0f), glm::vec3 t = glm::vec3(0.0f)) {
-        //auto mapped = segment_t::rotate_vector_3d(pos - o, a, r);
-        //auto matrix = glm::translate(glm::mat4(1.0f), pos - o);
-        auto matrix = glm::mat4(1.0);
-        matrix = glm::rotate(matrix, glm::radians(r), a);
-        //auto npos = glm::vec3(matrix[3].x, matrix[3].z, 0);
-        //auto _4npos = glm::vec4(matrix[0] + matrix[1] + matrix[2]);
-        //auto npos = glm::vec3(_4npos[0], _4npos[2], _4npos[1]);
-        //return npos + t;
-        auto _pos = pos - o;
-        //_pos = pos;
-        //matrix = glm::translate(matrix, -o);
-
-        return glm::vec3(matrix * glm::vec4(_pos.x,_pos.y,_pos.z,1)) + t;
-    }
-
-    bool solve_inverse(glm::vec3 coordsIn) {
-        auto isnot_real = [](float x){
-            return (isinf(x) || isnan(x));
-        };
-
-        bool calculation_failure = false;
-
-        auto target_coords = coordsIn;
-        target_coords.z = -target_coords.z;
-        auto target_2d = glm::vec2(target_coords.x, target_coords.z);
-
-        float rot_out[5];
-
-        for (int i = 0; i < segments.size(); i++)
-            rot_out[i] = segments[i]->rotation;
-
-        // solve base rotation
-        auto seg_6 = s6->get_origin();
-        auto seg2d_6 = glm::vec2(seg_6.x, seg_6.z);
-
-        auto dif_6 = target_2d - seg2d_6;
-        auto atan2_6 = atan2(dif_6[1], dif_6[0]);
-        auto norm_6 = atan2_6 / M_PI;
-        auto rot_6 = (norm_6 + 1.0f) / 2.0f;
-        auto deg_6 = rot_6 * 360.0f;
-        auto serv_6 = rot_6;
-
-        //s6->rotation = serv_6;
-
-        glm::vec3 seg_5 = s5->get_origin();
-        glm::vec3 seg_5_real = glm::vec3(seg_5.x, seg_5.z, seg_5.y);
-        //auto seg5_2d = glm::vec3(seg_5.x, seg_5.z, 0);
-        glm::vec3 target_for_calc = target_coords;
-
-        auto target_pl3d = map_to_xy(target_for_calc, deg_6, y_axis, seg_5);
-        auto target_pl2d = glm::vec2(target_pl3d.x, target_pl3d.y);
-        auto plo3d = glm::vec3(0.0f);
-        auto plo2d = glm::vec2(0.0f);
-        //plo2d = target_pl2d;
-        auto pl3d = glm::vec3(500.0f, 0.0f, 0.0f);
-        auto pl2d = glm::vec2(pl3d);
-        auto s2d = glm::vec2(500);
-
-        std::vector<segment_t*> remaining_segments;
-        remaining_segments.assign(segments.begin() + 2, segments.end());
-        //std::reverse(remaining_segments.begin(), remaining_segments.end());
-
-        glm::vec2 prev_origin = target_pl2d;
-        std::vector<glm::vec2> new_origins;
-
-        if (debug_mode)
-            printf("target_pl2d <%.2f,%.2f> target_pl3d <%.2f,%.2f,%.2f> target_real <%.2f,%.2f,%.2f> seg_5 <%.2f,%.2f,%.2f> deg_6: %.2f\n", target_pl2d.x, target_pl2d.y, target_pl3d.x, target_pl3d.y, target_pl3d.z, target_coords.x, target_coords.y, target_coords.z, seg_5.x, seg_5.y, seg_5.z, deg_6);
-
-        while (true) {
-            if (remaining_segments.size() < 1) {
-                if (debug_mode)
-                    puts("No more segments");
-                break;
-            }
-
-            auto seg = remaining_segments.back();
-            float segment_radius = seg->get_length();
-            float total_length = 0.0f;
-
-            for (auto *x : remaining_segments)
-                total_length += x->get_length();
-
-            float dist_to_segment = total_length - segment_radius;
-            float segment_min = total_length - (segment_radius * 2);
-            float dist_origin_to_prev = glm::distance<2, float>(plo2d, prev_origin);
-            glm::vec2 mag = glm::normalize(prev_origin - plo2d);
-            
-            seg->debug_color = {0.,1.,0};
-            bool skip_optim = false;
-
-            if (remaining_segments.size() < 3) {
-                if (debug_mode)
-                    puts("2 or less segments left");
-                skip_optim = true;
-            }
-
-            float equal_mp = ((dist_origin_to_prev * dist_origin_to_prev) -
-                        (segment_radius * segment_radius) +
-                        (dist_to_segment * dist_to_segment)) /
-                        (2 * dist_origin_to_prev);
-
-            float rem_dist = dist_origin_to_prev - equal_mp;
-            float rem_min = -segment_radius/2.0f;
-            float rem_retract = 0.0f;
-            float rem_extend = segment_radius * 0.5f;
-            float rem_ex2 = rem_extend * 1.75f;
-            float rem_max = segment_radius * 0.95f;
-
-            if (debug_mode)
-                printf("servo: %i, rem_dist: %.2f, rem_max: %.2f, equal_mp: %.2f, segment_radius: %.2f, dist_origin_to_prev: %.2f, dist_to_segment: %.2f, total_length: %.2f, prev_origin <%.2f,%.2f>\n", seg->servo_num, rem_dist, rem_max, equal_mp, segment_radius, dist_origin_to_prev, dist_to_segment, total_length, prev_origin.x, prev_origin.y);
-
-            auto new_origin = prev_origin;
-
-            if (dist_to_segment < 0.05f) {
-                new_origins.push_back(new_origin);
-                if (debug_mode)
-                    puts("Convergence");
-                break;
-            }
-
-            if (rem_dist > rem_max) {
-                if (debug_mode)
-                    puts("Not enough overlap");
-                if (debug_mode)
-                    printf("rem_dist: %.2f rem_max: %.2f\n", rem_dist, rem_max);
-                seg->debug_color = {0.,0.,0.};
-            }
-
-            if (!skip_optim) {
-                if (segment_radius > dist_origin_to_prev) {
-                    auto v = rem_extend - (segment_radius - dist_origin_to_prev);
-                    equal_mp = dist_origin_to_prev - v;
-                    if (debug_mode) {
-                        seg->debug_color = {1.,0,0};
-                        puts("Too close to origin");
-                    }
-                } else
-                if (rem_dist < rem_extend && total_length > dist_origin_to_prev) {
-                    equal_mp = dist_origin_to_prev - rem_extend;
-                    if (debug_mode) {
-                        seg->debug_color = {1.,1,1};
-                        puts("Maintain center of gravity");
-                    }
-                } else
-                if (rem_dist < rem_retract && total_length > dist_origin_to_prev) {
-                    equal_mp = dist_origin_to_prev - rem_retract;
-                    if (debug_mode) {
-                        puts("Too much leftover length");
-                        seg->debug_color = {1.,.5,.5};
-                    }
-                } else
-                if (rem_dist < rem_ex2 && rem_dist >= rem_extend && total_length > dist_origin_to_prev) {
-                    if (debug_mode) {
-                        puts("Too much leftover length");
-                        seg->debug_color = {0.,.5,.5};
-                    }
-                    auto r = rem_ex2 - rem_extend;
-                    r = (rem_dist - rem_extend) / r;
-                    auto v = r / 2.0f;
-
-                    if (v > 0.4f)
-                        v -= (v - 0.38f);
-
-                    equal_mp = dist_origin_to_prev - (v * segment_radius + rem_extend);
-                }
-
-                if (rem_dist < rem_min) {
-                    if (debug_mode)
-                        puts("Too much overlap");
-                        seg->debug_color = {0.25,0.25,0.25};
-                    rem_dist = rem_min;
-                } else
-                if (rem_dist > rem_max) {
-                    if (debug_mode)
-                        puts("Not enough overlap");
-                        seg->debug_color = {0,0,0.};
-                } else {
-                    rem_dist = dist_origin_to_prev - equal_mp;
-                }
-            }
-
-            if (debug_mode)
-                printf("rem_dist: %.2f, rem_max: %.2f, equal_mp: %.2f, dist_origin_to_prev: %.2f, dist_to_segment: %.2f\n", rem_dist, rem_max, equal_mp, dist_origin_to_prev, dist_to_segment);
-
-            auto mp_vec = mag * equal_mp;
-            //auto n = sqrtf((segment_radius - rem_dist) * (segment_radius - rem_dist));
-            auto n = sqrtf(abs((segment_radius * segment_radius) - (rem_dist * rem_dist)));
-            auto o = atan2(mag.y, mag.x) - (M_PI / 2.0f);
-            auto new_mag = glm::normalize(glm::vec2(cosf(o),sinf(o)));
-            new_origin = mp_vec + (new_mag * n);
-            auto new_origin3d = glm::vec3(new_origin.x, new_origin.y, 0.0f);
-            auto dist_new_prev = glm::distance<2, float>(new_origin, prev_origin);
-
-            if (debug_mode)
-                printf("mp_vec <%.2f %.2f>, segment_radius: %.2f, rem_dist: %.2f, n: %.2f, o: %.2f, new_mag <%.2f,%.2f>, dist_new_prev: %.2f\n", mp_vec[0], mp_vec[1], segment_radius, rem_dist, n, o, new_mag[0], new_mag[1], dist_new_prev);
-
-            if (calculation_failure)
-                seg->debug_color = {1.0,0,0};
-
-            float tolerable_distance = 10.0f;
-
-            if (abs(dist_new_prev - segment_radius) > tolerable_distance) {
-                if (debug_mode)
-                    puts("Distance to prev is too different");
-                calculation_failure = true;
-            }
-
-            if (remaining_segments.size() < 1 && glm::distance<2, float>(new_origin, target_pl2d) > tolerable_distance) {
-                if (debug_mode)
-                    puts("Distance to target is too far");
-                calculation_failure = true;
-            }
-
-            //if (isnot_real(new_origin.x) || isnot_real(new_origin.y))
-            //    new_origin = prev_origin;//glm::vec2(0.0f);
-
-            nocalc:;
-
-            prev_origin = new_origin;
-            new_origins.push_back(new_origin);
-            remaining_segments.pop_back();
-        }
-
-        if (calculation_failure) {
-            if (debug_mode)
-                puts("Failed to calculate");
-            return glfail;
-        } else {
-            if (new_origins.size() < 1) {
-                if (debug_mode)
-                    puts("Not enough origins");
-                return glfail;
-            }
-
-            float prevrot = 0.0f;
-            auto prevmag = glm::vec2(0.0f,1.0f);
-            auto prev = glm::vec2(0.0f);
-            new_origins.pop_back();
-            std::reverse(new_origins.begin(), new_origins.end());
-            new_origins.push_back(target_pl2d);
-
-            for (int i = 0; i < new_origins.size(); i++) {
-                auto cur = new_origins[i];
-
-                auto dif = cur - prev;
-                auto mag = glm::normalize(dif);
-
-                auto servo = segments[i + 2];
-                auto calcmag = mag;
-
-                auto rot = atan2(calcmag.x, calcmag.y) - prevrot;
-
-                auto deg = ((glm::degrees(rot)) / 180.0f) * 0.5f + 1.0f;
-
-                if (isnot_real(deg)) {
-                    deg = rot_out[i + 2];
-                    rot = glm::radians(deg);
-                }
-                
-                if (debug_mode)
-                    printf("servo: %i, rot: %.2f, deg: %.2f, prevrot: %.2f, calcmag[0]: %.2f, calcmag[1]: %.2f, cur[0]: %.2f, cur[1]: %.2f, prev[0]: %.2f, prev[1]: %.2f\n", servo->servo_num, rot, deg, prevrot, calcmag.x, calcmag.y, cur.x, cur.y, prev.x, prev.y);
-
-                
-                rot_out[i + 2] = deg;
-
-                prev = cur;
-                prevmag = mag;
-                prevrot = prevrot + rot;
-            }
-        }
-
-        if (debug_mode)
-            printf("Initial rot: %.2f,%.2f,%.2f,%.2f,%.2f\n", rot_out[0], rot_out[1], rot_out[2], rot_out[3], rot_out[4]);
-
-        rot_out[1] = serv_6;
-
-        if (debug_mode)
-            printf("End rot: %.2f,%.2f,%.2f,%.2f,%.2f\n", rot_out[0], rot_out[1], rot_out[2], rot_out[3], rot_out[4]);
-        for (int i = 0; i < segments.size(); i++)
-            segments[i]->rotation = rot_out[i] * 360.0f;
-        return glsuccess;
-    }
-};
-
 struct text_parameters {
     using v4 = glm::vec4;
 
@@ -1858,6 +1591,7 @@ struct ui_slider_t : public ui_element_t {
     bool onMouse(int button, int action, int mods) override {
         if (cursor_drag && button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS) {
             cursor_drag = false;
+            userinput_kinematic = true;
             set_value(drag_value);
             return glcaught;
         }
@@ -2031,7 +1765,533 @@ struct ui_toggle_t : public ui_element_t {
     }
 };
 
+struct kinematics_t {
+    static glm::vec3 map_to_xy(glm::vec3 pos, float r = 0.0f, glm::vec3 a = -z_axis, glm::vec3 o = glm::vec3(0.0f), glm::vec3 t = glm::vec3(0.0f)) {
+        //auto mapped = segment_t::rotate_vector_3d(pos - o, a, r);
+        //auto matrix = glm::translate(glm::mat4(1.0f), pos - o);
+        auto matrix = glm::mat4(1.0);
+        matrix = glm::rotate(matrix, glm::radians(r), a);
+        //auto npos = glm::vec3(matrix[3].x, matrix[3].z, 0);
+        //auto _4npos = glm::vec4(matrix[0] + matrix[1] + matrix[2]);
+        //auto npos = glm::vec3(_4npos[0], _4npos[2], _4npos[1]);
+        //return npos + t;
+        auto _pos = pos - o;
+        //_pos = pos;
+        //matrix = glm::translate(matrix, -o);
+
+        return glm::vec3(matrix * glm::vec4(_pos.x,_pos.y,_pos.z,1)) + t;
+    }
+
+    bool solve_inverse(glm::vec3 coordsIn) {
+        auto isnot_real = [](float x){
+            return (isinf(x) || isnan(x));
+        };
+
+        bool calculation_failure = false;
+
+        auto target_coords = coordsIn;
+        target_coords.z = -target_coords.z;
+        auto target_2d = glm::vec2(target_coords.x, target_coords.z);
+
+        float rot_out[5];
+
+        for (int i = 0; i < segments.size(); i++)
+            rot_out[i] = segments[i]->rotation;
+
+        // solve base rotation
+        auto seg_6 = s6->get_origin();
+        auto seg2d_6 = glm::vec2(seg_6.x, seg_6.z);
+
+        auto dif_6 = target_2d - seg2d_6;
+        auto atan2_6 = atan2(dif_6[1], dif_6[0]);
+        auto norm_6 = atan2_6 / M_PI;
+        auto rot_6 = (norm_6 + 1.0f) / 2.0f;
+        auto deg_6 = rot_6 * 360.0f;
+        auto serv_6 = rot_6;
+
+        //s6->rotation = serv_6;
+
+        glm::vec3 seg_5 = s5->get_origin();
+        glm::vec3 seg_5_real = glm::vec3(seg_5.x, seg_5.z, seg_5.y);
+        //auto seg5_2d = glm::vec3(seg_5.x, seg_5.z, 0);
+        glm::vec3 target_for_calc = target_coords;
+
+        auto target_pl3d = map_to_xy(target_for_calc, deg_6, y_axis, seg_5);
+        auto target_pl2d = glm::vec2(target_pl3d.x, target_pl3d.y);
+        auto plo3d = glm::vec3(0.0f);
+        auto plo2d = glm::vec2(0.0f);
+        //plo2d = target_pl2d;
+        auto pl3d = glm::vec3(500.0f, 0.0f, 0.0f);
+        auto pl2d = glm::vec2(pl3d);
+        auto s2d = glm::vec2(500);
+
+        std::vector<segment_t*> remaining_segments;
+        remaining_segments.assign(segments.begin() + 2, segments.end());
+        //std::reverse(remaining_segments.begin(), remaining_segments.end());
+
+        glm::vec2 prev_origin = target_pl2d;
+        std::vector<glm::vec2> new_origins;
+
+        if (debug_mode)
+            printf("target_pl2d <%.2f,%.2f> target_pl3d <%.2f,%.2f,%.2f> target_real <%.2f,%.2f,%.2f> seg_5 <%.2f,%.2f,%.2f> deg_6: %.2f\n", target_pl2d.x, target_pl2d.y, target_pl3d.x, target_pl3d.y, target_pl3d.z, target_coords.x, target_coords.y, target_coords.z, seg_5.x, seg_5.y, seg_5.z, deg_6);
+
+        while (true) {
+            if (remaining_segments.size() < 1) {
+                if (debug_mode)
+                    puts("No more segments");
+                break;
+            }
+
+            auto seg = remaining_segments.back();
+            float segment_radius = seg->get_length();
+            float total_length = 0.0f;
+
+            for (auto *x : remaining_segments)
+                total_length += x->get_length();
+
+            float dist_to_segment = total_length - segment_radius;
+            float segment_min = total_length - (segment_radius * 2);
+            float dist_origin_to_prev = glm::distance<2, float>(plo2d, prev_origin);
+            glm::vec2 mag = glm::normalize(prev_origin - plo2d);
+            
+            seg->debug_color = {0.,1.,0};
+            bool skip_optim = false;
+
+            if (remaining_segments.size() < 3) {
+                if (debug_mode)
+                    puts("2 or less segments left");
+                skip_optim = true;
+            }
+
+            float equal_mp = ((dist_origin_to_prev * dist_origin_to_prev) -
+                        (segment_radius * segment_radius) +
+                        (dist_to_segment * dist_to_segment)) /
+                        (2 * dist_origin_to_prev);
+
+            float rem_dist = dist_origin_to_prev - equal_mp;
+            float rem_min = -segment_radius/2.0f;
+            float rem_retract = 0.0f;
+            float rem_extend = segment_radius * 0.5f;
+            float rem_ex2 = rem_extend * 1.75f;
+            float rem_max = segment_radius * 0.95f;
+
+            if (debug_mode)
+                printf("servo: %i, rem_dist: %.2f, rem_max: %.2f, equal_mp: %.2f, segment_radius: %.2f, dist_origin_to_prev: %.2f, dist_to_segment: %.2f, total_length: %.2f, prev_origin <%.2f,%.2f>\n", seg->servo_num, rem_dist, rem_max, equal_mp, segment_radius, dist_origin_to_prev, dist_to_segment, total_length, prev_origin.x, prev_origin.y);
+
+            auto new_origin = prev_origin;
+
+            if (dist_to_segment < 0.05f) {
+                new_origins.push_back(new_origin);
+                if (debug_mode)
+                    puts("Convergence");
+                break;
+            }
+
+            if (rem_dist > rem_max) {
+                if (debug_mode)
+                    puts("Not enough overlap");
+                if (debug_mode)
+                    printf("rem_dist: %.2f rem_max: %.2f\n", rem_dist, rem_max);
+                seg->debug_color = {0.,0.,0.};
+            }
+
+            if (!skip_optim) {
+                if (segment_radius > dist_origin_to_prev) {
+                    auto v = rem_extend - (segment_radius - dist_origin_to_prev);
+                    equal_mp = dist_origin_to_prev - v;
+                    if (debug_mode) {
+                        seg->debug_color = {1.,0,0};
+                        puts("Too close to origin");
+                    }
+                } else
+                if (rem_dist < rem_extend && total_length > dist_origin_to_prev) {
+                    equal_mp = dist_origin_to_prev - rem_extend;
+                    if (debug_mode) {
+                        seg->debug_color = {1.,1,1};
+                        puts("Maintain center of gravity");
+                    }
+                } else
+                if (rem_dist < rem_retract && total_length > dist_origin_to_prev) {
+                    equal_mp = dist_origin_to_prev - rem_retract;
+                    if (debug_mode) {
+                        puts("Too much leftover length");
+                        seg->debug_color = {1.,.5,.5};
+                    }
+                } else
+                if (rem_dist < rem_ex2 && rem_dist >= rem_extend && total_length > dist_origin_to_prev) {
+                    if (debug_mode) {
+                        puts("Too much leftover length");
+                        seg->debug_color = {0.,.5,.5};
+                    }
+                    auto r = rem_ex2 - rem_extend;
+                    r = (rem_dist - rem_extend) / r;
+                    auto v = r / 2.0f;
+
+                    if (v > 0.4f)
+                        v -= (v - 0.38f);
+
+                    equal_mp = dist_origin_to_prev - (v * segment_radius + rem_extend);
+                }
+
+                if (rem_dist < rem_min) {
+                    if (debug_mode)
+                        puts("Too much overlap");
+                        seg->debug_color = {0.25,0.25,0.25};
+                    rem_dist = rem_min;
+                } else
+                if (rem_dist > rem_max) {
+                    if (debug_mode)
+                        puts("Not enough overlap");
+                        seg->debug_color = {0,0,0.};
+                } else {
+                    rem_dist = dist_origin_to_prev - equal_mp;
+                }
+            }
+
+            if (debug_mode)
+                printf("rem_dist: %.2f, rem_max: %.2f, equal_mp: %.2f, dist_origin_to_prev: %.2f, dist_to_segment: %.2f\n", rem_dist, rem_max, equal_mp, dist_origin_to_prev, dist_to_segment);
+
+            auto mp_vec = mag * equal_mp;
+            //auto n = sqrtf((segment_radius - rem_dist) * (segment_radius - rem_dist));
+            auto n = sqrtf(abs((segment_radius * segment_radius) - (rem_dist * rem_dist)));
+            auto o = atan2(mag.y, mag.x) - (M_PI / 2.0f);
+            auto new_mag = glm::normalize(glm::vec2(cosf(o),sinf(o)));
+            new_origin = mp_vec + (new_mag * n);
+            auto new_origin3d = glm::vec3(new_origin.x, new_origin.y, 0.0f);
+            auto dist_new_prev = glm::distance<2, float>(new_origin, prev_origin);
+
+            if (debug_mode)
+                printf("mp_vec <%.2f %.2f>, segment_radius: %.2f, rem_dist: %.2f, n: %.2f, o: %.2f, new_mag <%.2f,%.2f>, dist_new_prev: %.2f\n", mp_vec[0], mp_vec[1], segment_radius, rem_dist, n, o, new_mag[0], new_mag[1], dist_new_prev);
+
+            if (calculation_failure)
+                seg->debug_color = {1.0,0,0};
+
+            float tolerable_distance = 10.0f;
+
+            if (abs(dist_new_prev - segment_radius) > tolerable_distance) {
+                if (debug_mode)
+                    puts("Distance to prev is too different");
+                calculation_failure = true;
+            }
+
+            if (remaining_segments.size() < 1 && glm::distance<2, float>(new_origin, target_pl2d) > tolerable_distance) {
+                if (debug_mode)
+                    puts("Distance to target is too far");
+                calculation_failure = true;
+            }
+
+            //if (isnot_real(new_origin.x) || isnot_real(new_origin.y))
+            //    new_origin = prev_origin;//glm::vec2(0.0f);
+
+            nocalc:;
+
+            prev_origin = new_origin;
+            new_origins.push_back(new_origin);
+            remaining_segments.pop_back();
+        }
+
+        if (calculation_failure) {
+            if (debug_mode)
+                puts("Failed to calculate");
+            return glfail;
+        } else {
+            if (new_origins.size() < 1) {
+                if (debug_mode)
+                    puts("Not enough origins");
+                return glfail;
+            }
+
+            float prevrot = 0.0f;
+            auto prevmag = glm::vec2(0.0f,1.0f);
+            auto prev = glm::vec2(0.0f);
+            new_origins.pop_back();
+            std::reverse(new_origins.begin(), new_origins.end());
+            new_origins.push_back(target_pl2d);
+
+            for (int i = 0; i < new_origins.size(); i++) {
+                auto cur = new_origins[i];
+
+                auto dif = cur - prev;
+                auto mag = glm::normalize(dif);
+
+                auto servo = segments[i + 2];
+                auto calcmag = mag;
+
+                auto rot = atan2(calcmag.x, calcmag.y) - prevrot;
+
+                auto deg = ((glm::degrees(rot)) / 180.0f) * 0.5f + 1.0f;
+
+                if (isnot_real(deg)) {
+                    deg = rot_out[i + 2];
+                    rot = glm::radians(deg);
+                }
+                
+                if (debug_mode)
+                    printf("servo: %i, rot: %.2f, deg: %.2f, prevrot: %.2f, calcmag[0]: %.2f, calcmag[1]: %.2f, cur[0]: %.2f, cur[1]: %.2f, prev[0]: %.2f, prev[1]: %.2f\n", servo->servo_num, rot, deg, prevrot, calcmag.x, calcmag.y, cur.x, cur.y, prev.x, prev.y);
+
+                
+                rot_out[i + 2] = deg;
+
+                prev = cur;
+                prevmag = mag;
+                prevrot = prevrot + rot;
+            }
+        }
+
+        if (debug_mode)
+            printf("Initial rot: %.2f,%.2f,%.2f,%.2f,%.2f\n", rot_out[0], rot_out[1], rot_out[2], rot_out[3], rot_out[4]);
+
+        rot_out[1] = serv_6;
+
+        if (debug_mode)
+            printf("End rot: %.2f,%.2f,%.2f,%.2f,%.2f\n", rot_out[0], rot_out[1], rot_out[2], rot_out[3], rot_out[4]);
+        for (int i = 0; i < segments.size(); i++)
+            segments[i]->rotation = rot_out[i] * 360.0f;
+
+        userinput_kinematic = true;
+        auto _clamp = [](float v, float min, float max) {
+            float r = max - min;
+            while (v < min) v += r;
+            while (v > max) v -= r;
+            return v;
+        };
+        slider3->set_value(_clamp(rot_out[4] * 360.0f, -180, 180));
+        slider4->set_value(_clamp(rot_out[3] * 360.0f, -180, 180));
+        slider5->set_value(_clamp(rot_out[2] * 360.0f, -180, 180));
+        slider6->set_value(_clamp(rot_out[1] * 360.0f, -180, 180));
+
+        return glsuccess;
+    }
+};
+
+struct joystick_t {
+    std::map<int, std::pair<std::string, GLFWgamepadstate>> joysticks;
+    std::map<int, std::map<int, bool>> joystick_held;
+    std::map<int, std::vector<float>> joystick_deadzones;
+    bool pedantic_debug = false;
+    bool button_held = false;
+    bool camera_move = false;
+
+    std::map<int, std::string> button_mapping = {
+        {GLFW_GAMEPAD_BUTTON_GUIDE, "Guide"},
+        {GLFW_GAMEPAD_BUTTON_LEFT_BUMPER, "L1"},
+        {GLFW_GAMEPAD_BUTTON_RIGHT_BUMPER, "R1"},
+        {GLFW_GAMEPAD_BUTTON_B, "B"},
+        {GLFW_GAMEPAD_BUTTON_A, "A"},
+        {GLFW_GAMEPAD_BUTTON_Y, "Y"},
+        {GLFW_GAMEPAD_BUTTON_START, "Start"},
+        {GLFW_GAMEPAD_BUTTON_CIRCLE, "Circle"}
+    };
+
+    std::map<int, std::string> axis_mapping = {
+        {GLFW_GAMEPAD_AXIS_LEFT_X, "Left X"},
+        {GLFW_GAMEPAD_AXIS_LEFT_Y, "Left Y"},
+        {GLFW_GAMEPAD_AXIS_RIGHT_X, "Right X"},
+        {GLFW_GAMEPAD_AXIS_RIGHT_Y, "Right Y"},
+        {GLFW_GAMEPAD_AXIS_LEFT_TRIGGER, "Left Trig"},
+        {GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER, "Right Trig"}
+    };
+
+    void set_robot() {
+        for (auto &joy : joysticks) {
+            auto &jid = joy.first;
+            auto &gp = joy.second.second;
+            auto &axes = gp.axes;
+            auto &buttons = gp.buttons;
+
+            auto _set_v3 = [&](glm::vec3 &a, glm::vec3 &b, int i, float t) {
+                if (fabs(b[i]) > t && fabs(b[i]) < 100) {
+                    a[i] += b[i];
+                    return true;
+                }
+                return false;
+            };
+
+            auto set_v3 = [&](glm::vec3 &a, glm::vec3 &b, float t) {
+                return _set_v3(a, b, 0, t) | 
+                       _set_v3(a, b, 1, t) | 
+                       _set_v3(a, b, 2, t);
+            };
+
+            if (camera_move) {
+                float pitch = -axes[3];
+                float yaw = axes[2];
+                if (fabs(pitch) <= 0.1)
+                    pitch = 0;
+                if (fabs(yaw) <= 0.1)
+                    yaw = 0;
+                camera->joystick_move(window, pitch, yaw * 2.0f);
+
+
+                glm::vec3 jd(-axes[1], 0, axes[0]);
+                if (buttons[GLFW_GAMEPAD_BUTTON_A])
+                    jd.y += 0.5;
+                if (buttons[GLFW_GAMEPAD_BUTTON_B])
+                    jd.y -= 0.5;
+                glm::vec3 ndz(0.0);
+                set_v3(ndz, jd, 0.1);
+                auto cyw = glm::radians(camera->yaw);
+                auto vvv = glm::vec3(
+                    (cos(cyw) * ndz.x) - (sin(cyw) * ndz.z),
+                    ndz.y,
+                    (sin(cyw) * ndz.x) + (cos(cyw) * ndz.z)
+                );
+                
+                camera->position += vvv;
+            } else {
+                glm::vec3 jd(-axes[1], -axes[3], axes[0]);
+                jd *= 0.5f;
+                glm::vec3 ndz(0.0);
+                if (!set_v3(ndz, jd, 0.1))
+                    continue;
+
+                auto cyw = glm::radians(camera->yaw);
+                auto vvv = glm::vec3(
+                    (cos(cyw) * ndz.x) - (sin(cyw) * ndz.z),
+                    ndz.y,
+                    (sin(cyw) * ndz.x) + (cos(cyw) * ndz.z)
+                );
+                robot_target += vvv;
+                kinematics->solve_inverse(robot_target);
+            }
+        }
+    }
+
+    void process_input() {
+        for (auto &joy : joysticks) {
+            auto &jid = joy.first;
+            auto &gp = joy.second.second;
+            auto &axes = gp.axes;
+            auto &buttons = gp.buttons;
+            auto dz = joystick_deadzones[jid].data();
+            auto &jh = joystick_held[jid];
+
+            if (buttons[GLFW_GAMEPAD_BUTTON_GUIDE]) {
+                memcpy(dz, &axes, 4 * sizeof dz[0]);
+            }
+
+            if (buttons[GLFW_GAMEPAD_BUTTON_LEFT_BUMPER] && 
+                buttons[GLFW_GAMEPAD_BUTTON_RIGHT_BUMPER]) {
+                if (!button_held)
+                    pedantic_debug = !pedantic_debug;
+                button_held = true;
+            } else {
+                button_held = false;
+            }
+
+            if (buttons[GLFW_GAMEPAD_BUTTON_BACK]) {
+                if (!jh[GLFW_GAMEPAD_BUTTON_BACK]) {
+                    camera_move = !camera_move;
+                }
+            }
+
+            if (buttons[GLFW_GAMEPAD_BUTTON_START]) {
+                if (!jh[GLFW_GAMEPAD_BUTTON_START]) {
+                    ::reset();
+                }
+            }
+
+            if (buttons[GLFW_GAMEPAD_BUTTON_Y]) {
+                if (!jh[GLFW_GAMEPAD_BUTTON_Y]) {
+                    debug_mode = !debug_mode;
+                    debugInfo->hidden = !debug_mode;
+                    debugToggle->modified = true;
+                    debugToggle->toggle_state = debug_mode;
+                }
+            }
+
+            for (int i = 0; i < 4; i++) {
+                gp.axes[i] -= dz[i];
+            }
+
+            for (int i = 0; i < GLFW_GAMEPAD_BUTTON_LAST; i++) {
+                jh.insert_or_assign(i, buttons[i]);
+            }
+        }
+    }
+
+    void update() {
+        for (auto &joy : joysticks) {
+            auto &jid = joy.first;
+            GLFWgamepadstate *st = &joy.second.second;
+            if (!glfwGetGamepadState(jid, st)) {
+                int count;
+                const float *axes = glfwGetJoystickAxes(jid, &count);
+                if (count < 6) {
+                    joy.second.first = "6 axes required";
+                    continue;
+                }
+                memcpy(&st->axes, axes, count * sizeof axes[0]);
+                std::swap(st->axes[2], st->axes[4]);
+                std::swap(st->axes[3], st->axes[2]);
+                assert(count < 7 && "Axes count greater than 6");
+                const unsigned char *buttons = glfwGetJoystickButtons(jid, &count);
+                assert(count < 16 && "Button count greater than 15");
+                memcpy(&st->buttons, buttons, count);
+            }
+        }
+
+        process_input();
+        set_robot();
+    }
+
+    std::string debug_info() {
+        std::string info;
+        for (auto &joy : joysticks) {
+            auto &jid = joy.first;
+            info += std::format("Joystick {}: {}\n", jid, joy.second.first);
+            if (glfwJoystickIsGamepad(jid))
+                info += "  Gamepad\n";
+            auto &gp = joy.second.second;
+            for (int i = 0; i < sizeof gp.axes / sizeof gp.axes[0]; i++) {
+                info += std::format("  {}: {}\n", axis_mapping[i], gp.axes[i]);
+            }
+            auto &jh = joystick_held[jid];
+            for (int i = 0; i < sizeof gp.buttons / sizeof gp.buttons[0]; i++) {
+                if (button_mapping.contains(i))
+                    info += std::format("  {}: {} {}\n", button_mapping[i], gp.buttons[i], jh[i]);
+                else
+                if (pedantic_debug)
+                    info += std::format("  {}: {} {}\n", i, gp.buttons[i], jh[i]);
+            }
+        }   
+        return info;
+    }
+
+    void remove(const int &jid) {
+        joysticks.erase(jid);
+        joystick_deadzones.erase(jid);
+        joystick_held.erase(jid);
+    }
+
+    void reset() {
+
+    }
+
+    void query_joysticks() {
+        for (int jid = GLFW_JOYSTICK_1; jid < GLFW_JOYSTICK_LAST; jid++) {
+            if (!glfwJoystickPresent(jid)) {
+                if (joysticks.contains(jid))
+                    remove(jid);
+                continue;
+            }
+            
+            const char *name = glfwGetJoystickName(jid);
+            auto gp = GLFWgamepadstate();
+            memset(&gp, 0, sizeof gp);
+            if (!name)
+                name = "Unnamed";
+            joysticks.insert({jid, {name, gp}});
+            joystick_deadzones.insert({jid, {0,0,0,0}});
+            joystick_held.insert({jid, {}});
+        }
+        update();
+    }
+};
+
 void servo_slider_update(ui_slider_t* ui, ui_slider_t::ui_slider_v value) {
+    if (userinput_kinematic)
+        return;
     s6->rotation = slider6->value;
     s5->rotation = slider5->value;
     s4->rotation = slider4->value;
@@ -2079,13 +2339,14 @@ void update_debug_info() {
         debug_objects->add_sphere(robot_target, s3->model_scale);
 
         snprintf(char_buf, bufsize, 
-        "%.0f FPS\nCamera %.2f %.2f %.2f\nFacing %.2f %.2f\nTarget %.2f %.2f %.2f\ns3 %.2f %.2f %.2f\nRotation %.2f %.2f %.2f %.2f",
+        "%.0f FPS\nCamera %.2f %.2f %.2f\nFacing %.2f %.2f\nTarget %.2f %.2f %.2f\ns3 %.2f %.2f %.2f\nRotation %.2f %.2f %.2f %.2f\n%s",
         fps, 
         camera->position.x, camera->position.y, camera->position.z,
         camera->yaw,camera->pitch,
         robot_target.x, robot_target.y, robot_target.z,
         s3_t.x,s3_t.y,s3_t.z,
-        s6->rotation, s5->rotation, s4->rotation, s3->rotation
+        s6->rotation, s5->rotation, s4->rotation, s3->rotation,
+        joysticks->debug_info().c_str()
         );
         debugInfo->set_string(&char_buf[0]);
     }
@@ -2135,6 +2396,7 @@ int init_context() {
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
     glfwSetCursorPosCallback(window, cursor_position_callback);
     glfwSetMouseButtonCallback(window, mouse_button_callback);
+    glfwSetJoystickCallback(joystick_callback);
     glfwSwapInterval(1);
 
     glfwGetWindowPos(window, &initial_window.x, &initial_window.y);
@@ -2186,7 +2448,7 @@ int init() {
     slider_specular = debugInfo->add_child(new ui_slider_t(window, sliderPos + (sliderAdd * glm::vec4(6.)), -2., 2., 0., "Specular Light", false));
     slider_shininess = debugInfo->add_child(new ui_slider_t(window, sliderPos + (sliderAdd * glm::vec4(7.)), -2., 2., 0.5, "Shininess", false));
 
-    sliderPos = glm::vec4{-0.95,-.4,0,0} + glm::vec4{0,0,.25,0.1};
+    sliderPos = glm::vec4{-0.95,-.2,0,0} + glm::vec4{0,0,.25,0.1};
     sliderAdd = {0,.105,0,0};
 
     auto &gbl = global_text_parameters;
@@ -2209,13 +2471,14 @@ int init() {
     }
 
     debugInfo->hidden = !debug_mode;
-    uiHandler->add_child(new ui_toggle_t(window, {-.975,.925,.05,.05}, "Debug", debug_mode, [](ui_toggle_t* ui, bool state){
+    debugToggle = uiHandler->add_child(new ui_toggle_t(window, {-.975,.925,.05,.05}, "Debug", debug_mode, [](ui_toggle_t* ui, bool state){
         debug_mode = state;
         debugInfo->hidden = !debug_mode;
     }));
     debugInfo->add_child(new ui_toggle_t(window, {-.865, .925,.05,.05}, "Reset", false, [](ui_toggle_t *ui, bool state) {
         if (state)
             uiHandler->reset();
+        reset();
     }));
 
     sBase = new segment_t(nullptr, z_axis, z_axis, 46.19, 7);
@@ -2227,7 +2490,19 @@ int init() {
     segments = std::vector<segment_t*>({sBase, s6, s5, s4, s3});
     kinematics = new kinematics_t();
 
+    joysticks = new joystick_t;
+
     return glsuccess;
+}
+
+void reset() {
+    camera = new (camera)camera_t;
+    camera->position = {-30,20,0.};
+    camera->yaw = 0.001;
+    camera->pitch = 0.001;
+    for (auto &seg : segments)
+        seg->rotation = 0;
+    robot_target = s3->get_segment_vector() + s3->get_origin();
 }
 
 int load() {
@@ -2249,13 +2524,11 @@ int load() {
         return glfail;
     }
 
-    camera->position = {-30,20,0.};
-    camera->yaw = 0.001;
-    camera->pitch = 0.001;
+    reset();
     uiHandler->load();
     //debugInfo->load();
 
-    robot_target = s3->get_segment_vector() + s3->get_origin();
+    joysticks->query_joysticks();
 
     return glsuccess;
 }
@@ -2271,6 +2544,7 @@ int main() {
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         handle_keyboard(window, deltaTime);
+        joysticks->update();
 
         mainProgram->use();
         mainProgram->set_camera(camera);
@@ -2419,4 +2693,9 @@ void handle_keyboard(GLFWwindow* window, float deltaTime) {
     if (change) {
         kinematics->solve_inverse(robot_target);
     }
+}
+
+void joystick_callback(int jid, int event) {
+    printf("%i, %i\n", jid, event);
+    joysticks->query_joysticks();
 }

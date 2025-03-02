@@ -7,6 +7,8 @@
 #include <string>
 #include <format>
 
+#include <signal.h>
+
 #include <GL/gl.h>
 #include <GLES3/gl3.h>
 #include <EGL/egl.h>
@@ -79,7 +81,11 @@ void mouse_button_callback(GLFWwindow *window, int button, int action, int mods)
 void cursor_position_callback(GLFWwindow *window, double x, double y);
 void handle_keyboard(GLFWwindow* window, float deltaTime);
 void joystick_callback(int jid, int event);
+void handle_signal(int sig);
+void handle_error(const char *str, int errcode = -1);
 void reset();
+void destroy();
+void safe_exit(int errcode = 0);
 
 using hrc = std::chrono::high_resolution_clock;
 using tp = std::chrono::time_point<hrc>;
@@ -2334,6 +2340,7 @@ struct joystick_t {
 struct robot_interface_t {
     hid_device *handle;
     std::string serial_number;
+    bool servo_sleep_on_destroy = true;
 
     using clk = std::chrono::high_resolution_clock;
     using tp = std::chrono::time_point<clk>;
@@ -2357,7 +2364,7 @@ struct robot_interface_t {
             return (v * (1.0 / int_per_deg)) + home;
         }
 
-        int get_interpolated_pos() {
+        int get_interpolated_pos(bool debug = false) {
             int d = pos - real_pos;
 
             if (abs(d) < 2)
@@ -2368,7 +2375,8 @@ struct robot_interface_t {
             int dir = d > 0 ? 1 : -1;
             int ret = dir * md + real_pos;
 
-            //fprintf(stderr, "gip id:%i t:%li d:%i md:%i dir:%i ret:%i\n", id, t.count(), d, md, dir, ret);
+            if (debug)
+                fprintf(stderr, "gip id:%i t:%li d:%i md:%i dir:%i ret:%i\n", id, t.count(), d, md, dir, ret);
 
             if (abs(ret) > abs(pos))
                 return pos;
@@ -2423,6 +2431,8 @@ struct robot_interface_t {
                 continue;
             }
 
+            rs.get_interpolated_pos(true);
+
             int time_to_complete = (fabs(dist * rs.int_per_deg) / rs.deg_per_second) * 1000;
             fprintf(stderr, "Send new command to s%i (%i - (%i %.2f) %i ms)\n", rs.id, intrp, targeti, targetf, time_to_complete);
             rs.set_pos(targeti);
@@ -2445,8 +2455,12 @@ struct robot_interface_t {
     }
 
     void destroy() {
-        if (handle)
+        if (handle) {
+            if (servo_sleep_on_destroy)                
+                servos_off();
+            fprintf(stderr, "Close robot connection\n");
             close();
+        }
         hid_exit();
     }
 
@@ -2485,6 +2499,7 @@ struct robot_interface_t {
             int id = ret[index];
             int pos = (ret[index + 2] << 8) | ret[index + 1];
             robot_servos[id].real_pos = pos;
+            robot_servos[id].last_cmd = clk::now();
         }
     }
 
@@ -2560,20 +2575,23 @@ struct robot_interface_t {
         int dpos = 500;
         int drp = 500;
         float dps = 100.0f;
-        float dconv = 90.0f / 300.0f;
+        float dconv = 90.0f / 375.0f;
         robot_servo servos[6] = {
             { 1, 200, 850, dhome, dpos, drp, dps, dconv }, // gripper
             { 2, 50, 850, dhome, dpos, drp, dps, dconv }, // wrist
             { 3, dmin, dmax, dhome, dpos, drp, dps, dconv }, // 3
-            { 4, dmin, dmax, dhome, dpos, drp, dps, dconv }, // 4
-            { 5, dmin, dmax, dhome, dpos, drp, dps, dconv }, // 5
-            { 6, 100, 900, dhome, dpos, drp, dps, dconv }  // base
+            { 4, 1, 1042, 502, dpos, drp, dps, -dconv }, // 4 (inverted)
+            { 5, 148, 882, 505, dpos, drp, dps, dconv }, // 5
+            { 6, 1, 1146, 482, dpos, drp, dps, dconv }  // base
         };
 
         for (int i = 0; i < 6; i++)
             robot_servos.insert({servos[i].id, servos[i]});
 
         read_all();
+
+        for (auto &rs : robot_servos)
+            rs.second.pos = rs.second.real_pos;
 
         return glsuccess;
     }
@@ -2704,9 +2722,7 @@ int init_context() {
 
     window = glfwCreateWindow(initial_window[2], initial_window[3], "xArm", nullptr, nullptr);
     if (!window) {
-        std::cerr << "Failed to create GLFW window" << std::endl;
-        glfwTerminate();
-        return glfail;
+        handle_error("failed to create glfw window");
     }
     glfwMakeContextCurrent(window);
 
@@ -2722,6 +2738,10 @@ int init_context() {
     current_window = initial_window;
 
     lastTime = glfwGetTime();
+
+    signal(SIGQUIT, handle_signal);
+    signal(SIGKILL, handle_signal);
+    signal(SIGSTOP, handle_signal);
 
     return glsuccess;
 }
@@ -2827,9 +2847,7 @@ int load() {
     if ((textTexture->load() ||
         mainProgram->load() ||
         textProgram->load())) {
-        std::cout << "A component failed to load" << std::endl;
-        glfwTerminate();
-        return glfail;
+        handle_error("a component failed to load");
     }
 
     if (sBase->load("assets/xarm-sbase.stl") ||
@@ -2837,9 +2855,7 @@ int load() {
         s5->load("assets/xarm-s5.stl") ||
         s4->load("assets/xarm-s4.stl") ||
         s3->load("assets/xarm-s3.stl")) {
-        std::cout << "A model failed to load" << std::endl;
-        glfwTerminate();
-        return glfail;
+        handle_error("a model failed to load");
     }
 
     reset();
@@ -2848,17 +2864,14 @@ int load() {
 
     joysticks->query_joysticks();
     robot_interface->open(1155, 22352);
+    robot_interface->read_all();
 
     return glsuccess;
 }
 
-void destroy() {
-    robot_interface->destroy();
-}
-
 int main() {
     if (init_context() || init() || load())
-        exit(glfail);
+        handle_error("failed to load", glfail);
 
     while (!glfwWindowShouldClose(window)) {
         calcFps();
@@ -2902,9 +2915,26 @@ int main() {
         glfwPollEvents();
     }
 
-    destroy();
+    safe_exit(0);
+}
+
+void destroy() {
     glfwTerminate();
-    return 0;
+    robot_interface->destroy();
+}
+
+void safe_exit(int errcode) {
+    destroy();
+    exit(errcode);
+}
+
+void handle_error(const char *str, int errcode) {
+    fprintf(stderr, "Error: %s\n", str);
+    safe_exit(errcode);
+}
+
+void handle_signal(int sig) {
+    safe_exit();
 }
 
 void framebuffer_size_callback(GLFWwindow *window, int width, int height) {
@@ -2954,6 +2984,15 @@ void handle_keyboard(GLFWwindow* window, float deltaTime) {
 
     if (uiHandler->onKeyboard(deltaTime))
         return;
+
+    static bool x_press = false;
+    if (glfwGetKey(window, GLFW_KEY_X) == GLFW_PRESS) {
+        if (!x_press)
+            joysticks->query_robot();
+        x_press = true;
+    } else {
+        x_press = false;
+    }
 
     camera->keyboard(window, deltaTime);
 

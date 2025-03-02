@@ -369,8 +369,8 @@ struct mesh_t {
         glBindVertexArray(0);
 
         if (debug_mode) {
-            printf("Uploaded %i verticies, stride: %li, size: %li, vbo: %i, addr: %p\n", vertexCount, stride, vertexCount * sizeof verticies[0], vbo, verticies.data());
-            printf("Vertex <min,max> <%f,%f><%f,%f><%f,%f>\n", minBound.x, maxBound.x, minBound.y, maxBound.y, minBound.z, maxBound.z);
+            //printf("Uploaded %i verticies, stride: %li, size: %li, vbo: %i, addr: %p\n", vertexCount, stride, vertexCount * sizeof verticies[0], vbo, verticies.data());
+            //printf("Vertex <min,max> <%f,%f><%f,%f><%f,%f>\n", minBound.x, maxBound.x, minBound.y, maxBound.y, minBound.z, maxBound.z);
             //printf("Normal <min,max> <%f,%f><%f,%f><%f,%f>\n", minNormal.x, maxNormal.x, minNormal.y, maxNormal.y, minNormal.z, maxNormal.z);
         }
 
@@ -871,7 +871,7 @@ struct segment_t : public mesh_t {
 
         if (servo_num == 5) { //shift forward just for this servo
             glm::mat4 iden = parent->get_rotation_matrix();
-            auto trn = glm::vec3(2.54f * model_scale, 0., 0.);
+            auto trn = glm::vec3(2.54f * -model_scale, 0., 0.);
             iden = glm::translate(iden, trn);
             iden = glm::rotate(iden, glm::radians(90.0f), {0,0,1});
 

@@ -144,7 +144,7 @@ class Segment:
         if self.servo_num == 5:
             return (self.parent.get_segment_vector() + 
                    self.parent.get_origin() + 
-                   (rotate_vector_3d(self.get_direction_matrix()[1], z_axis, 90) * 2.54))
+                   (rotate_vector_3d(self.get_direction_matrix()[1], z_axis, 90) * -2.54))
         
         return self.parent.get_segment_vector() + self.parent.get_origin()
     

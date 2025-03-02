@@ -17,6 +17,8 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
+#include <hidapi/hidapi.h>
+
 #define STB_IMAGE_IMPLEMENTATION
 #include "thirdparty/stb_image.h"
 #include "thirdparty/stl_reader.h"
@@ -38,6 +40,7 @@ struct ui_text_t;
 struct ui_slider_t;
 struct ui_toggle_t;
 struct joystick_t;
+struct robot_interface_t;
 
 glm::vec<4, int> initial_window;
 glm::vec<4, int> current_window;
@@ -69,6 +72,7 @@ ui_element_t *uiHandler, *ui_servo_sliders;
 kinematics_t *kinematics;
 glm::vec3 robot_target;
 joystick_t *joysticks;
+robot_interface_t *robot_interface;
 
 void framebuffer_size_callback(GLFWwindow *window, int width, int height);
 void mouse_button_callback(GLFWwindow *window, int button, int action, int mods);
@@ -2289,6 +2293,71 @@ struct joystick_t {
     }
 };
 
+struct robot_interface_t {
+    hid_device *handle;
+    std::string serial_number;
+
+    robot_interface_t() {
+        init();
+    }
+
+    ~robot_interface_t() {
+        destroy();
+    }
+
+    void destroy() {
+        if (handle)
+            close();
+        hid_exit();
+    }
+
+    void init() {
+        hid_init();
+        handle = nullptr;
+    }
+
+    int open(unsigned short vendor_id, unsigned short product_id, wchar_t *serial_number_w = nullptr) {
+        if (handle)
+            close();
+        handle = hid_open(vendor_id, product_id, serial_number_w);
+
+        if (!handle) {
+            std::wstring err = hid_error(0);
+            std::string rr(err.begin(), err.end());
+            fprintf(stderr, "Not connected %s\n", rr.c_str());
+            serial_number = "No USB";
+            return glfail;
+        }
+
+        std::wstring wstr;
+        if (!serial_number_w) {
+            wchar_t wbuf[100];
+            if (!hid_get_serial_number_string(handle, &wbuf[0], 100))
+                wstr = std::wstring(&wbuf[0]);
+            else 
+                wstr = L"No serial";
+        } else {
+            wstr = std::wstring(serial_number_w);
+        }
+        serial_number = std::string(wstr.begin(), wstr.end());
+
+        return glsuccess;
+    }
+
+    void close() {
+        if (!handle)
+            return;
+        hid_close(handle);
+        handle = nullptr;
+    }
+
+    std::string debug_info() {
+        std::string ret;
+        ret += std::format("USB: {}\n", serial_number);
+        return ret;
+    }
+};
+
 void servo_slider_update(ui_slider_t* ui, ui_slider_t::ui_slider_v value) {
     if (userinput_kinematic)
         return;
@@ -2339,14 +2408,15 @@ void update_debug_info() {
         debug_objects->add_sphere(robot_target, s3->model_scale);
 
         snprintf(char_buf, bufsize, 
-        "%.0f FPS\nCamera %.2f %.2f %.2f\nFacing %.2f %.2f\nTarget %.2f %.2f %.2f\ns3 %.2f %.2f %.2f\nRotation %.2f %.2f %.2f %.2f\n%s",
+        "%.0f FPS\nCamera %.2f %.2f %.2f\nFacing %.2f %.2f\nTarget %.2f %.2f %.2f\ns3 %.2f %.2f %.2f\nRotation %.2f %.2f %.2f %.2f\n%s%s",
         fps, 
         camera->position.x, camera->position.y, camera->position.z,
         camera->yaw,camera->pitch,
         robot_target.x, robot_target.y, robot_target.z,
         s3_t.x,s3_t.y,s3_t.z,
         s6->rotation, s5->rotation, s4->rotation, s3->rotation,
-        joysticks->debug_info().c_str()
+        joysticks->debug_info().c_str(),
+        robot_interface->debug_info().c_str()
         );
         debugInfo->set_string(&char_buf[0]);
     }
@@ -2491,6 +2561,7 @@ int init() {
     kinematics = new kinematics_t();
 
     joysticks = new joystick_t;
+    robot_interface = new robot_interface_t;
 
     return glsuccess;
 }
@@ -2529,8 +2600,13 @@ int load() {
     //debugInfo->load();
 
     joysticks->query_joysticks();
+    robot_interface->open(1155, 22352);
 
     return glsuccess;
+}
+
+void destroy() {
+    robot_interface->destroy();
 }
 
 int main() {
@@ -2578,6 +2654,7 @@ int main() {
         glfwPollEvents();
     }
 
+    destroy();
     glfwTerminate();
     return 0;
 }

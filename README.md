@@ -36,9 +36,9 @@ sudo python3 -m pip install -r ./requirements.txt
 
 ```
 # Install dependencies
-sudo apt install libglfw3-dev libopengl-dev libgles2-mesa-dev libegl1-mesa-dev libglm-dev libgl1-mesa-dev mesa-common-dev g++
+sudo apt install libglfw3-dev libopengl-dev libgles2-mesa-dev libegl1-mesa-dev libglm-dev libgl1-mesa-dev mesa-common-dev g++ libhidapi-dev
 # Compile
-g++ main.cpp -lGL -lglfw -g -o main.out
+g++ main.cpp -lGL -lglfw -lhidapi-libusb -g -o main.out
 # Run program
 ./main.out
 ```

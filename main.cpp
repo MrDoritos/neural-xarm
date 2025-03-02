@@ -807,6 +807,18 @@ struct segment_t : public mesh_t {
         //return glm::normalize(glm::mat3(mat) * glm::vec3(1.));
     }
 
+    static inline constexpr float clamp(const float &v, const float &min, const float &max) {
+        float ret = v;
+        const float r = max - min;
+        while (ret < min) ret += r;
+        while (ret > max) ret -= r;
+        return ret;
+    }
+
+    inline float get_clamped_rotation() {
+        return clamp(rotation, -180, 180);
+    }
+
     float get_length() {
         return length * model_scale;
     }
@@ -2053,16 +2065,11 @@ struct kinematics_t {
             segments[i]->rotation = rot_out[i] * 360.0f;
 
         userinput_kinematic = true;
-        auto _clamp = [](float v, float min, float max) {
-            float r = max - min;
-            while (v < min) v += r;
-            while (v > max) v -= r;
-            return v;
-        };
-        slider3->set_value(_clamp(rot_out[4] * 360.0f, -180, 180));
-        slider4->set_value(_clamp(rot_out[3] * 360.0f, -180, 180));
-        slider5->set_value(_clamp(rot_out[2] * 360.0f, -180, 180));
-        slider6->set_value(_clamp(rot_out[1] * 360.0f, -180, 180));
+        
+        slider3->set_value(s3->get_clamped_rotation());
+        slider4->set_value(s4->get_clamped_rotation());
+        slider5->set_value(s5->get_clamped_rotation());
+        slider6->set_value(s6->get_clamped_rotation());
 
         return glsuccess;
     }
@@ -2083,6 +2090,7 @@ struct joystick_t {
         {GLFW_GAMEPAD_BUTTON_B, "B"},
         {GLFW_GAMEPAD_BUTTON_A, "A"},
         {GLFW_GAMEPAD_BUTTON_Y, "Y"},
+        {GLFW_GAMEPAD_BUTTON_X, "X"},
         {GLFW_GAMEPAD_BUTTON_START, "Start"},
         {GLFW_GAMEPAD_BUTTON_CIRCLE, "Circle"}
     };
@@ -2102,6 +2110,7 @@ struct joystick_t {
             auto &gp = joy.second.second;
             auto &axes = gp.axes;
             auto &buttons = gp.buttons;
+            float tolerance = 0.15;
 
             auto _set_v3 = [&](glm::vec3 &a, glm::vec3 &b, int i, float t) {
                 if (fabs(b[i]) > t && fabs(b[i]) < 100) {
@@ -2120,9 +2129,9 @@ struct joystick_t {
             if (camera_move) {
                 float pitch = -axes[3];
                 float yaw = axes[2];
-                if (fabs(pitch) <= 0.1)
+                if (fabs(pitch) <= tolerance)
                     pitch = 0;
-                if (fabs(yaw) <= 0.1)
+                if (fabs(yaw) <= tolerance)
                     yaw = 0;
                 camera->joystick_move(window, pitch, yaw * 2.0f);
 
@@ -2133,7 +2142,7 @@ struct joystick_t {
                 if (buttons[GLFW_GAMEPAD_BUTTON_B])
                     jd.y -= 0.5;
                 glm::vec3 ndz(0.0);
-                set_v3(ndz, jd, 0.1);
+                set_v3(ndz, jd, tolerance);
                 auto cyw = glm::radians(camera->yaw);
                 auto vvv = glm::vec3(
                     (cos(cyw) * ndz.x) - (sin(cyw) * ndz.z),
@@ -2146,7 +2155,7 @@ struct joystick_t {
                 glm::vec3 jd(-axes[1], -axes[3], axes[0]);
                 jd *= 0.5f;
                 glm::vec3 ndz(0.0);
-                if (!set_v3(ndz, jd, 0.1))
+                if (!set_v3(ndz, jd, tolerance))
                     continue;
 
                 auto cyw = glm::radians(camera->yaw);
@@ -2160,6 +2169,8 @@ struct joystick_t {
             }
         }
     }
+
+    void query_robot();
 
     void process_input() {
         for (auto &joy : joysticks) {
@@ -2204,6 +2215,12 @@ struct joystick_t {
                 }
             }
 
+            if (buttons[GLFW_GAMEPAD_BUTTON_X]) {
+                if (!jh[GLFW_GAMEPAD_BUTTON_X]) {
+                    query_robot();
+                }
+            }
+
             for (int i = 0; i < 4; i++) {
                 gp.axes[i] -= dz[i];
             }
@@ -2222,8 +2239,14 @@ struct joystick_t {
                 int count;
                 const float *axes = glfwGetJoystickAxes(jid, &count);
                 if (count < 6) {
+                    fprintf(stderr, "6 axes required\n");
                     joy.second.first = "6 axes required";
                     continue;
+                } else {
+                    if (count > 6) {
+                        fprintf(stderr, "More than 6 axes detected\n");
+                    }
+                    count = 6;
                 }
                 memcpy(&st->axes, axes, count * sizeof axes[0]);
                 std::swap(st->axes[2], st->axes[4]);
@@ -2263,6 +2286,7 @@ struct joystick_t {
     }
 
     void remove(const int &jid) {
+        fprintf(stderr, "Remove joystick %i\n", jid);
         joysticks.erase(jid);
         joystick_deadzones.erase(jid);
         joystick_held.erase(jid);
@@ -2273,18 +2297,32 @@ struct joystick_t {
     }
 
     void query_joysticks() {
+        // Fix joystick reordering when devices are added/removed
+        joysticks.clear();
+        joystick_deadzones.clear();
+        joystick_held.clear();
         for (int jid = GLFW_JOYSTICK_1; jid < GLFW_JOYSTICK_LAST; jid++) {
             if (!glfwJoystickPresent(jid)) {
-                if (joysticks.contains(jid))
+                if (joysticks.contains(jid)) {
+                    //return;
                     remove(jid);
+                }
                 continue;
             }
             
+            int count;
+            const float *axes = glfwGetJoystickAxes(jid, &count);
+            if (count != 6) {
+                fprintf(stderr, "6 axes joystick device required\n");
+                continue;
+            }
+
             const char *name = glfwGetJoystickName(jid);
             auto gp = GLFWgamepadstate();
             memset(&gp, 0, sizeof gp);
             if (!name)
                 name = "Unnamed";
+            fprintf(stderr, "Add joystick %i\n", jid);
             joysticks.insert({jid, {name, gp}});
             joystick_deadzones.insert({jid, {0,0,0,0}});
             joystick_held.insert({jid, {}});
@@ -2296,6 +2334,107 @@ struct joystick_t {
 struct robot_interface_t {
     hid_device *handle;
     std::string serial_number;
+
+    using clk = std::chrono::high_resolution_clock;
+    using tp = std::chrono::time_point<clk>;
+    using dur = std::chrono::duration<long, std::milli>;
+
+    struct robot_servo {
+        robot_servo() {}
+        robot_servo(int id, int min, int max, int home, int pos, int real_pos, float deg_per_second, float int_per_deg)
+        :id(id),min(min),max(max),pos(pos),
+        real_pos(real_pos),deg_per_second(deg_per_second),
+        home(home),last_cmd(clk::now()),int_per_deg(int_per_deg) { }
+        int id, min, max, pos, real_pos, home;
+        float int_per_deg, deg_per_second;
+        tp last_cmd;
+
+        float get_deg(int v) {
+            return float(v - home) * int_per_deg;
+        }
+
+        int get_int(float v) {
+            return (v * (1.0 / int_per_deg)) + home;
+        }
+
+        int get_interpolated_pos() {
+            int d = pos - real_pos;
+
+            if (abs(d) < 2)
+                return pos;
+
+            dur t = std::chrono::duration_cast<dur>(clk::now() - last_cmd);
+            int md = get_int((t.count() / 1000.0f) * deg_per_second);
+            int dir = d > 0 ? 1 : -1;
+            int ret = dir * md + real_pos;
+
+            //fprintf(stderr, "gip id:%i t:%li d:%i md:%i dir:%i ret:%i\n", id, t.count(), d, md, dir, ret);
+
+            if (abs(ret) > abs(pos))
+                return pos;
+
+            return ret;
+        }
+
+        bool ready_for_command() {
+            return get_interpolated_pos() == pos;
+        }
+
+        void set_pos(int v) {
+            last_cmd = clk::now();
+            real_pos = pos;
+            pos = v;
+        }
+    };
+
+    std::map<int, robot_servo> robot_servos;
+
+    void update() {
+        std::vector servos = { s3, s4, s5, s6 };
+
+        assert(robot_servos.size() < 7 && "Need servos to update\n");
+
+        std::vector<std::pair<int,int>> cmds;
+
+        for (auto *sv : servos) {
+            auto &rs = robot_servos[sv->servo_num];
+
+            float targetf = sv->get_clamped_rotation();
+            int targeti = rs.get_int(targetf);
+
+            //assert(targeti >= rs.min && targeti <= rs.max && "Position out of bounds");
+            if (targeti < rs.min || targeti > rs.max) {
+                //fprintf(stderr, "Clamp position %i < %i < %i\n", rs.min, targeti, rs.max);
+                if (targeti < rs.min)
+                    targeti = rs.min;
+                if (targeti > rs.max)
+                    targeti = rs.max;
+            }
+
+            int intrp = rs.get_interpolated_pos();
+            int dist = targeti - intrp;
+            if (abs(dist) < 10) {
+                //fprintf(stderr, "Skip sending command to s%i (%i - %i)\n", rs.id, intrp, targeti);
+                continue;
+            }
+
+            if (!rs.ready_for_command()) {
+                //fprintf(stderr, "Servo not ready s%i\n", rs.id);
+                continue;
+            }
+
+            int time_to_complete = (fabs(dist * rs.int_per_deg) / rs.deg_per_second) * 1000;
+            fprintf(stderr, "Send new command to s%i (%i - (%i %.2f) %i ms)\n", rs.id, intrp, targeti, targetf, time_to_complete);
+            rs.set_pos(targeti);
+            set_servos({{rs.id, targeti}}, time_to_complete);
+            //cmds.push_back({rs.id, targeti});
+        }
+
+        //if (cmds.size() > 0)
+        //    set_servos(cmds, 1000);
+        //for (auto &cmd : cmds)
+            //set_servos({cmd}, 1000);
+    }
 
     robot_interface_t() {
         init();
@@ -2309,6 +2448,80 @@ struct robot_interface_t {
         if (handle)
             close();
         hid_exit();
+    }
+
+    std::string get_hid_error() {
+        std::wstring err = hid_error(0);
+        return std::string(err.begin(), err.end());
+    }
+
+    void read_all() {
+        if (!handle)
+            return;
+
+        const unsigned char cmd[11] = {
+            0x55, 0x55, 9, 21, 6, 1, 2, 3, 4, 5, 6
+        };
+        hid_write(handle, &cmd[0], 11);
+
+        unsigned char ret[100];
+        int count = hid_read_timeout(handle, &ret[0], 100, 2000);
+        if (count < 6) {
+            fprintf(stderr, "Failed to read any bytes\n%s\n", get_hid_error().c_str());
+            return;
+        }
+
+        count = ret[4];
+
+        /*
+        if (ret[4] != 6) {
+            fprintf(stderr, "Read fail\n");
+            return;
+        }
+        */
+
+        for (int i = 0; i < count; i++) {
+            int index = 5 + 3 * i;
+            int id = ret[index];
+            int pos = (ret[index + 2] << 8) | ret[index + 1];
+            robot_servos[id].real_pos = pos;
+        }
+    }
+
+    void set_servo(int id, int position, int millis = 1000) {
+        if (!handle)
+            return;
+            
+        set_servos({{id,position}}, millis);
+    }
+
+    void set_servos(const std::vector<std::pair<int,int>> &poses, const int time = 1000) {
+        if (!handle)
+            return;
+
+        const int count = poses.size() * 3 + 7;
+        assert(poses.size() > 0 && "No poses");
+        assert(poses.size() < 255 && count < 255 && "Should not be that big\n");
+        unsigned char cmd[count];
+        unsigned char header[7] = {0x55, 0x55, (unsigned char)(count - 2), 0x03, (unsigned char)(poses.size()),
+            (unsigned char)(time & 0xFF), (unsigned char)(time >> 8)
+        };
+        memcpy(&cmd[0], &header[0], 7);
+
+        int i = 0;
+        for (auto &sv : poses) {
+            int offset = i++ * 3 + 7;
+            cmd[offset] = sv.first;
+            cmd[offset+1] = sv.second & 0xFF;
+            cmd[offset+2] = sv.second >> 8;
+        }
+
+        hid_write(handle, &cmd[0], count);
+    }
+
+    void servos_off() {
+        unsigned char cmd[11] = { 0x55, 0x55, 9, 20, 6, 1, 2, 3, 4, 5, 6 };
+        hid_write(handle, &cmd[0], 11);
     }
 
     void init() {
@@ -2341,12 +2554,34 @@ struct robot_interface_t {
         }
         serial_number = std::string(wstr.begin(), wstr.end());
 
+        int dmin = 200;
+        int dmax = 800;
+        int dhome = 500;
+        int dpos = 500;
+        int drp = 500;
+        float dps = 100.0f;
+        float dconv = 90.0f / 300.0f;
+        robot_servo servos[6] = {
+            { 1, 200, 850, dhome, dpos, drp, dps, dconv }, // gripper
+            { 2, 50, 850, dhome, dpos, drp, dps, dconv }, // wrist
+            { 3, dmin, dmax, dhome, dpos, drp, dps, dconv }, // 3
+            { 4, dmin, dmax, dhome, dpos, drp, dps, dconv }, // 4
+            { 5, dmin, dmax, dhome, dpos, drp, dps, dconv }, // 5
+            { 6, 100, 900, dhome, dpos, drp, dps, dconv }  // base
+        };
+
+        for (int i = 0; i < 6; i++)
+            robot_servos.insert({servos[i].id, servos[i]});
+
+        read_all();
+
         return glsuccess;
     }
 
     void close() {
         if (!handle)
             return;
+        robot_servos.clear();
         hid_close(handle);
         handle = nullptr;
     }
@@ -2354,9 +2589,21 @@ struct robot_interface_t {
     std::string debug_info() {
         std::string ret;
         ret += std::format("USB: {}\n", serial_number);
+        for (auto &rs : robot_servos) {
+            ret += std::format("  {}: {}\n", rs.second.id, rs.second.real_pos);
+        }
         return ret;
     }
 };
+
+void joystick_t::query_robot() {
+    robot_interface->read_all();
+    for (auto &rs_kv : robot_interface->robot_servos) {
+        auto &rs = rs_kv.second;
+        fprintf(stderr, "%i: %i (%.2f deg), ", rs.id, rs.real_pos, rs.get_deg(rs.real_pos));
+    }
+    fputs("\n", stderr);
+}
 
 void servo_slider_update(ui_slider_t* ui, ui_slider_t::ui_slider_v value) {
     if (userinput_kinematic)
@@ -2466,7 +2713,7 @@ int init_context() {
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
     glfwSetCursorPosCallback(window, cursor_position_callback);
     glfwSetMouseButtonCallback(window, mouse_button_callback);
-    glfwSetJoystickCallback(joystick_callback);
+    //glfwSetJoystickCallback(joystick_callback);
     glfwSwapInterval(1);
 
     glfwGetWindowPos(window, &initial_window.x, &initial_window.y);
@@ -2620,7 +2867,8 @@ int main() {
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         handle_keyboard(window, deltaTime);
-        joysticks->update();
+        //joysticks->update();
+        robot_interface->update();
 
         mainProgram->use();
         mainProgram->set_camera(camera);

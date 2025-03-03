@@ -85,6 +85,7 @@ void handle_signal(int sig);
 void handle_error(const char *str, int errcode = -1);
 void reset();
 void destroy();
+void hint_exit();
 void safe_exit(int errcode = 0);
 
 using hrc = std::chrono::high_resolution_clock;
@@ -2352,9 +2353,16 @@ struct robot_interface_t {
         :id(id),min(min),max(max),pos(pos),
         real_pos(real_pos),deg_per_second(deg_per_second),
         home(home),last_cmd(clk::now()),int_per_deg(int_per_deg) { }
-        int id, min, max, pos, real_pos, home;
+        int id, min, max, home;
+        // robot's real position based off a query or time-based movement interpolation
+        int real_pos;
+        // robot's target position, if set without last_cmd, will jerk the robot
+        int pos;
         float int_per_deg, deg_per_second;
+        // last time a movement was sent to the robot
         tp last_cmd;
+        int min_time = 20;
+        int min_diff = 2;
 
         float get_deg(int v) {
             return float(v - home) * int_per_deg;
@@ -2364,28 +2372,32 @@ struct robot_interface_t {
             return (v * (1.0 / int_per_deg)) + home;
         }
 
+        int get_elapsed_time() {
+            return (int)std::chrono::duration_cast<dur>(clk::now() - last_cmd).count();
+        }
+
         int get_interpolated_pos(bool debug = false) {
             int d = pos - real_pos;
 
-            if (abs(d) < 2)
+            if (abs(d) < min_diff)
                 return pos;
 
             dur t = std::chrono::duration_cast<dur>(clk::now() - last_cmd);
-            int md = get_int((t.count() / 1000.0f) * deg_per_second);
+            int md = (t.count() / 1000.0f) * deg_per_second;
             int dir = d > 0 ? 1 : -1;
-            int ret = dir * md + real_pos;
+            int intp = dir * md;
 
             if (debug)
-                fprintf(stderr, "gip id:%i t:%li d:%i md:%i dir:%i ret:%i\n", id, t.count(), d, md, dir, ret);
+                fprintf(stderr, "gip id:%i t:%li d:%i md:%i dir:%i pos:%i intp:%i intp + real_pos:%i\n", id, t.count(), d, md, dir, pos, intp, intp + real_pos);
 
-            if (abs(ret) > abs(pos))
+            if (abs(intp) > abs(d))
                 return pos;
 
-            return ret;
+            return intp + real_pos;
         }
 
         bool ready_for_command() {
-            return get_interpolated_pos() == pos;
+            return get_elapsed_time() > min_time && get_interpolated_pos() == pos;
         }
 
         void set_pos(int v) {
@@ -2398,11 +2410,28 @@ struct robot_interface_t {
     std::map<int, robot_servo> robot_servos;
 
     void update() {
+        if (!handle)
+            return;
+
         std::vector servos = { s3, s4, s5, s6 };
 
         assert(robot_servos.size() < 7 && "Need servos to update\n");
 
         std::vector<std::pair<int,int>> cmds;
+
+        static tp last_batch = clk::now();
+        tp now_batch = clk::now();
+        static bool constant_speed = false;
+        static int u_period = 20;
+        static int m_period = 2000;
+        static int t_overlap = 0;
+        int r_period = int(std::chrono::duration_cast<dur>(now_batch - last_batch).count()) + t_overlap;
+
+        if (!constant_speed && r_period < u_period)
+            return;
+
+        if (!constant_speed && r_period > m_period)
+            r_period = m_period;
 
         for (auto *sv : servos) {
             auto &rs = robot_servos[sv->servo_num];
@@ -2419,27 +2448,65 @@ struct robot_interface_t {
                     targeti = rs.max;
             }
 
+            int initialp = rs.real_pos;
             int intrp = rs.get_interpolated_pos();
             int dist = targeti - intrp;
-            if (abs(dist) < 10) {
-                //fprintf(stderr, "Skip sending command to s%i (%i - %i)\n", rs.id, intrp, targeti);
+
+            if (constant_speed)
+            { // constant speed
+            if (abs(dist) < rs.min_diff) {
+                //if (rs.id == 5)
+                //    fprintf(stderr, "Skip sending command to s%i (%i - %i)\n", rs.id, intrp, targeti);
                 continue;
             }
-
             if (!rs.ready_for_command()) {
-                //fprintf(stderr, "Servo not ready s%i\n", rs.id);
+                //if (rs.id == 6)
+                //    fprintf(stderr, "Servo not ready s%i\n", rs.id);
                 continue;
             }
 
-            rs.get_interpolated_pos(true);
+            //rs.get_interpolated_pos(true);
 
-            int time_to_complete = (fabs(dist * rs.int_per_deg) / rs.deg_per_second) * 1000;
-            fprintf(stderr, "Send new command to s%i (%i - (%i %.2f) %i ms)\n", rs.id, intrp, targeti, targetf, time_to_complete);
+            int time_to_complete = (fabs(dist) / rs.deg_per_second) * 1000;
+            if (debug_mode)
+                fprintf(stderr, "Send constant speed s%i (%i - (%i %.2f) = %i, %i ms)\n", rs.id, intrp, targeti, targetf, dist, time_to_complete);
             rs.set_pos(targeti);
             set_servos({{rs.id, targeti}}, time_to_complete);
             //cmds.push_back({rs.id, targeti});
+            } // constant time
+            else 
+            {
+            rs.last_cmd = now_batch;
+
+            if (abs(dist) < rs.min_diff)
+                continue;
+
+            int mv = (r_period/1000.0f) * rs.deg_per_second;
+            int mvdist = rs.real_pos - intrp;
+            float accel = mvdist / (float)mv;
+            float jerk = mvdist * (float)mv / (float)mv;
+            int rintrp = intrp;
+
+            if (fabs(jerk) > mv / 2) {
+                intrp += (mvdist / 2); //limit jerk
+            }
+
+            //rs.set_pos(targeti);
+            rs.pos = targeti;
+            rs.real_pos = intrp;
+            
+            if (debug_mode)
+                fprintf(stderr, "Send constant time s%i (%i -> %i (jerk comp %i)) (mvdist %i) (%i %.2f) = %i (%i ms %i intpersec) accel %.2f jerk %.2f\n", rs.id, initialp, rintrp, intrp, mvdist, targeti, targetf, dist, r_period, mv, accel, jerk);
+            cmds.push_back({rs.id, intrp});
+            }
         }
 
+        if (!constant_speed) {
+            if (cmds.size() > 0) {
+                set_servos(cmds, r_period);
+                last_batch = now_batch;
+            }
+        }
         //if (cmds.size() > 0)
         //    set_servos(cmds, 1000);
         //for (auto &cmd : cmds)
@@ -2487,22 +2554,17 @@ struct robot_interface_t {
 
         count = ret[4];
 
-        /*
-        if (ret[4] != 6) {
-            fprintf(stderr, "Read fail\n");
-            return;
-        }
-        */
-
+        auto now_time = clk::now();
         for (int i = 0; i < count; i++) {
             int index = 5 + 3 * i;
             int id = ret[index];
             int pos = (ret[index + 2] << 8) | ret[index + 1];
-            robot_servos[id].real_pos = pos;
-            robot_servos[id].last_cmd = clk::now();
+            robot_servos[id].real_pos = (unsigned short)(pos);
+            robot_servos[id].last_cmd = now_time;
         }
     }
 
+    //set no check
     void set_servo(int id, int position, int millis = 1000) {
         if (!handle)
             return;
@@ -2510,6 +2572,7 @@ struct robot_interface_t {
         set_servos({{id,position}}, millis);
     }
 
+    //set no check
     void set_servos(const std::vector<std::pair<int,int>> &poses, const int time = 1000) {
         if (!handle)
             return;
@@ -2534,6 +2597,7 @@ struct robot_interface_t {
         hid_write(handle, &cmd[0], count);
     }
 
+    //set no check
     void servos_off() {
         unsigned char cmd[11] = { 0x55, 0x55, 9, 20, 6, 1, 2, 3, 4, 5, 6 };
         hid_write(handle, &cmd[0], 11);
@@ -2569,13 +2633,22 @@ struct robot_interface_t {
         }
         serial_number = std::string(wstr.begin(), wstr.end());
 
+        hid_set_nonblocking(handle, 0);
+        fprintf(stderr, "Open robot connection\n");
+
+        /*
+        https://github.com/migsdigs/Hiwonder_xArm_ESP32
+        1: 0.39 sec/60deg, 160 deg - or (60*375/90/0.39) = 641.03/s
+        6-2: 0.22 sec/60deg, 240 deg - or (60*375/90/0.22) = 1136.4/s
+        */
+
         int dmin = 200;
         int dmax = 800;
         int dhome = 500;
         int dpos = 500;
         int drp = 500;
-        float dps = 100.0f;
         float dconv = 90.0f / 375.0f;
+        float dps = 500.0f;
         robot_servo servos[6] = {
             { 1, 200, 850, dhome, dpos, drp, dps, dconv }, // gripper
             { 2, 50, 850, dhome, dpos, drp, dps, dconv }, // wrist
@@ -2742,6 +2815,8 @@ int init_context() {
     signal(SIGQUIT, handle_signal);
     signal(SIGKILL, handle_signal);
     signal(SIGSTOP, handle_signal);
+    signal(SIGTERM, handle_signal);
+    signal(SIGINT, handle_signal);
 
     return glsuccess;
 }
@@ -2923,6 +2998,10 @@ void destroy() {
     robot_interface->destroy();
 }
 
+void hint_exit() {
+    glfwSetWindowShouldClose(window, 1);
+}
+
 void safe_exit(int errcode) {
     destroy();
     exit(errcode);
@@ -2934,7 +3013,9 @@ void handle_error(const char *str, int errcode) {
 }
 
 void handle_signal(int sig) {
-    safe_exit();
+    fprintf(stderr, "Close signal caught\n");
+    //safe_exit();
+    hint_exit();
 }
 
 void framebuffer_size_callback(GLFWwindow *window, int width, int height) {

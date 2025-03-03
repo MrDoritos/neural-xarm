@@ -2160,7 +2160,7 @@ struct joystick_t {
                 camera->position += vvv;
             } else {
                 glm::vec3 jd(-axes[1], -axes[3], axes[0]);
-                jd *= 0.5f;
+                jd *= 0.25f;
                 glm::vec3 ndz(0.0);
                 if (!set_v3(ndz, jd, tolerance))
                     continue;
@@ -2601,6 +2601,7 @@ struct robot_interface_t {
     void servos_off() {
         unsigned char cmd[11] = { 0x55, 0x55, 9, 20, 6, 1, 2, 3, 4, 5, 6 };
         hid_write(handle, &cmd[0], 11);
+        usleep(100000); //why doesn't the command work every time, im trying to fix it
     }
 
     void init() {
@@ -2653,9 +2654,9 @@ struct robot_interface_t {
             { 1, 200, 850, dhome, dpos, drp, dps, dconv }, // gripper
             { 2, 50, 850, dhome, dpos, drp, dps, dconv }, // wrist
             { 3, dmin, dmax, dhome, dpos, drp, dps, dconv }, // 3
-            { 4, 1, 1042, 502, dpos, drp, dps, -dconv }, // 4 (inverted)
+            { 4, 1, 1042, 502, dpos, drp, 700.0f, -dconv }, // 4 (inverted)
             { 5, 148, 882, 505, dpos, drp, dps, dconv }, // 5
-            { 6, 1, 1146, 482, dpos, drp, dps, dconv }  // base
+            { 6, 1, 1146, 482, dpos, drp, 700.0f, dconv }  // base
         };
 
         for (int i = 0; i < 6; i++)
@@ -2955,7 +2956,7 @@ int main() {
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         handle_keyboard(window, deltaTime);
-        //joysticks->update();
+        joysticks->update();
         robot_interface->update();
 
         mainProgram->use();

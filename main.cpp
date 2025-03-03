@@ -6,6 +6,7 @@
 #include <map>
 #include <string>
 #include <format>
+#include <iomanip>
 
 #include <signal.h>
 
@@ -44,6 +45,7 @@ struct ui_toggle_t;
 struct joystick_t;
 struct robot_interface_t;
 
+using vec3_d = glm::vec<3, double>;
 glm::vec<4, int> initial_window;
 glm::vec<4, int> current_window;
 bool fullscreen;
@@ -73,7 +75,8 @@ ui_slider_t *slider6, *slider5, *slider4, *slider3, *slider_ambient, *slider_dif
 std::vector<ui_slider_t*> slider_whatever;
 ui_element_t *uiHandler, *ui_servo_sliders;
 kinematics_t *kinematics;
-glm::vec3 robot_target;
+//glm::vec3 robot_target;
+vec3_d robot_target;
 joystick_t *joysticks;
 robot_interface_t *robot_interface;
 
@@ -91,11 +94,11 @@ void safe_exit(int errcode = 0);
 
 using hrc = std::chrono::high_resolution_clock;
 using tp = std::chrono::time_point<hrc>;
-using dur = std::chrono::duration<float>;
+using dur = std::chrono::duration<double>;
 tp start, end;
 dur duration;
 int frameCount = 0;
-float fps;
+double fps;
 double lastTime, deltaTime;
 
 glm::vec4 x_axis(1,0,0,0), y_axis(0,1,0,0), z_axis(0,0,1,0);
@@ -1113,7 +1116,8 @@ void add_rect(text_t *buffer, unsigned int &vertexCount, glm::vec4 XYWH, glm::ve
     };
 
     for (int i = 0; i < 6; i++) {
-        buffer[vertexCount] = verticies[i];
+        //buffer[vertexCount] = verticies[i];
+        memcpy(&buffer[vertexCount], &verticies[i], sizeof text_t());
 
         if (is_color)
             buffer[vertexCount].tex_coords() = UVWH;
@@ -1351,28 +1355,31 @@ struct ui_text_t : public ui_element_t {
     }
 
     bool render() override {
-        if (hidden)
-            return glsuccess;
-
-        ui_element_t::render();
-
         if (parameters_changed()) {
             //puts("Parameters changed");
             modified = true;
         }
+
+        if (hidden)
+            return glsuccess;
 
         if (modified)
             mesh();
 
         textProgram->use();
         textProgram->set_sampler("textureSampler", textTexture);
+
+        if (vertexCount < 1)
+            return ui_element_t::render();
+
         //printf("%s %i verticies\n", get_element_name().c_str(), vertexCount);
 
         glBindVertexArray(vao);
         glDrawArrays(GL_TRIANGLES, 0, vertexCount);
         glBindVertexArray(0);
 
-        return glsuccess;
+        //return glsuccess;
+        return run_children(&ui_element_t::render);
     }
 
     std::string get_element_name() override {
@@ -1827,7 +1834,7 @@ struct kinematics_t {
         return glm::vec3(matrix * glm::vec4(_pos.x,_pos.y,_pos.z,1)) + t;
     }
 
-    bool solve_inverse(glm::vec3 coordsIn) {
+    bool solve_inverse(vec3_d coordsIn) {
         auto isnot_real = [](float x){
             return (isinf(x) || isnan(x));
         };
@@ -2189,24 +2196,34 @@ struct joystick_t {
         {GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER, "Right Trig"}
     };
 
-    void set_robot() {
+    template<typename T, int c = 3>
+    glm::vec<c, T> scale_axes(glm::vec<c, T> &in) {
+        glm::vec<c, T> ret(0.0);
+        for (int i = 0; i < c; i++) {
+            T sign = in[i] >= 0 ? 1 : -1;
+            ret[i] = (0.0 + (1.0 * powf64(0.0 + abs(in[i]), 2))) * sign;
+        }
+        return ret;
+    }
+
+    void set_robot(double deltaTime) {
         for (auto &joy : joysticks) {
             auto &guid = joy.first;
             auto &jd = joy.second;
             auto &gp = jd.state;
             auto &axes = gp.axes;
             auto &buttons = gp.buttons;
-            float tolerance = 0.15;
+            float tolerance = 0.12;
 
-            auto _set_v3 = [&](glm::vec3 &a, glm::vec3 &b, int i, float t) {
-                if (fabs(b[i]) > t && fabs(b[i]) < 100) {
+            auto _set_v3 = [&](vec3_d &a, vec3_d &b, int i, double t) {
+                if (abs(b[i]) > t && abs(b[i]) < 100) {
                     a[i] += b[i];
                     return true;
                 }
                 return false;
             };
 
-            auto set_v3 = [&](glm::vec3 &a, glm::vec3 &b, float t) {
+            auto set_v3 = [&](vec3_d &a, vec3_d &b, double t) {
                 return _set_v3(a, b, 0, t) | 
                        _set_v3(a, b, 1, t) | 
                        _set_v3(a, b, 2, t);
@@ -2215,42 +2232,53 @@ struct joystick_t {
             if (camera_move) {
                 float pitch = -axes[3];
                 float yaw = axes[2];
-                if (fabs(pitch) <= tolerance)
+                if (abs(pitch) <= tolerance)
                     pitch = 0;
-                if (fabs(yaw) <= tolerance)
+                if (abs(yaw) <= tolerance)
                     yaw = 0;
-                camera->joystick_move(window, pitch, yaw * 2.0f);
+                camera->joystick_move(window, pitch * 2 * deltaTime, yaw * 2 * deltaTime);
 
 
-                glm::vec3 jd(-axes[1], 0, axes[0]);
-                if (buttons[GLFW_GAMEPAD_BUTTON_A])
-                    jd.y += 0.5;
-                if (buttons[GLFW_GAMEPAD_BUTTON_B])
-                    jd.y -= 0.5;
-                glm::vec3 ndz(0.0);
+                vec3_d jd(-axes[1], 0, axes[0]);
+
+                //jd = scale_axes(jd);
+
+                vec3_d ndz(0.0);
                 set_v3(ndz, jd, tolerance);
+                ndz = scale_axes(ndz);
+                if (buttons[GLFW_GAMEPAD_BUTTON_A])
+                    ndz.y += 0.5;//jd.y += 0.5;
+                if (buttons[GLFW_GAMEPAD_BUTTON_B])
+                    ndz.y -= 0.5;//jd.y -= 0.5;
                 auto cyw = glm::radians(camera->yaw);
-                auto vvv = glm::vec3(
+                auto vvv = vec3_d(
                     (cos(cyw) * ndz.x) - (sin(cyw) * ndz.z),
                     ndz.y,
                     (sin(cyw) * ndz.x) + (cos(cyw) * ndz.z)
                 );
                 
-                camera->position += vvv;
+                camera->position += vvv * deltaTime;
             } else {
-                glm::vec3 jd(-axes[1], -axes[3], axes[0]);
-                jd *= 0.25f;
-                glm::vec3 ndz(0.0);
+                vec3_d jd(-axes[1], -axes[3], axes[0]);
+                //jd *= 0.25f;
+                vec3_d ndz(0.0);
                 if (!set_v3(ndz, jd, tolerance))
-                    continue;
+                    ;//continue;
 
-                auto cyw = glm::radians(camera->yaw);
-                auto vvv = glm::vec3(
+                ndz = scale_axes(ndz);
+                ndz *= 0.25;
+                auto cyw = glm::radians<double>(camera->yaw);
+                auto vvv = vec3_d(
                     (cos(cyw) * ndz.x) - (sin(cyw) * ndz.z),
                     ndz.y,
                     (sin(cyw) * ndz.x) + (cos(cyw) * ndz.z)
                 );
-                robot_target += vvv;
+                robot_target += vvv * deltaTime;
+                //std::setprecision(15);
+                printf("%lf %lf %lf %lf %lf %lf %lf %lf\n",
+                    robot_target[0], robot_target[1], robot_target[2],
+                    vvv[0], vvv[1], vvv[2],
+                    deltaTime, cyw);
                 kinematics->solve_inverse(robot_target);
             }
         }
@@ -2258,7 +2286,7 @@ struct joystick_t {
 
     void query_robot();
 
-    void process_input() {
+    void process_input(double deltaTime) {
         for (auto &joy : joysticks) {
             auto &jd = joy.second;
             auto &gp = jd.state;
@@ -2292,7 +2320,7 @@ struct joystick_t {
         }
     }
 
-    void update() {
+    void update(double deltaTime) {
         for (auto &joy : joysticks) {
             auto &jd = joy.second;
             GLFWgamepadstate *st = &jd.state;
@@ -2319,8 +2347,8 @@ struct joystick_t {
             }
         }
 
-        process_input();
-        set_robot();
+        process_input(deltaTime);
+        set_robot(deltaTime);
     }
 
     std::string debug_info() {
@@ -2394,7 +2422,7 @@ struct joystick_t {
 
         first_run = false;
         joysticks = joys;
-        update();
+        update(0.1);
     }
 };
 
@@ -2402,6 +2430,7 @@ struct robot_interface_t {
     hid_device *handle;
     std::string serial_number;
     bool servo_sleep_on_destroy = true;
+    bool virtual_output = false;
 
     using clk = std::chrono::high_resolution_clock;
     using tp = std::chrono::time_point<clk>;
@@ -2422,9 +2451,10 @@ struct robot_interface_t {
         // last time a movement was sent to the robot
         tp last_cmd;
         int min_time = 20;
-        int min_diff = 2;
+        int min_diff = 1;
 
-        float get_deg(int v) {
+        template<typename T = int>
+        float get_deg(T v) {
             return float(v - home) * int_per_deg;
         }
 
@@ -2436,19 +2466,22 @@ struct robot_interface_t {
             return (int)std::chrono::duration_cast<dur>(clk::now() - last_cmd).count();
         }
 
-        int get_interpolated_pos(bool debug = false) {
-            int d = pos - real_pos;
+        template<typename T = int>
+        T get_interpolated_pos(bool debug = false) {
+            T d = pos - real_pos;
 
             if (abs(d) < min_diff)
                 return pos;
 
-            dur t = std::chrono::duration_cast<dur>(clk::now() - last_cmd);
-            int md = (t.count() / 1000.0f) * deg_per_second;
-            int dir = d > 0 ? 1 : -1;
-            int intp = dir * md;
+            using _dur = std::chrono::duration<float>;
+            auto t = std::chrono::duration_cast<_dur>(clk::now() - last_cmd);
+            //T md = (t.count() / 1000.0f) * deg_per_second;
+            T md = t.count() * deg_per_second;
+            T dir = d > 0 ? 1 : -1;
+            T intp = dir * md;
 
-            if (debug)
-                fprintf(stderr, "gip id:%i t:%li d:%i md:%i dir:%i pos:%i intp:%i intp + real_pos:%i\n", id, t.count(), d, md, dir, pos, intp, intp + real_pos);
+            //if (debug)
+            //    fprintf(stderr, "gip id:%i t:%li d:%i md:%i dir:%i pos:%i intp:%i intp + real_pos:%i\n", id, t.count(), d, md, dir, pos, intp, intp + real_pos);
 
             if (abs(intp) > abs(d))
                 return pos;
@@ -2470,7 +2503,7 @@ struct robot_interface_t {
     std::map<int, robot_servo> robot_servos;
 
     void update() {
-        if (!handle)
+        if (!handle && !virtual_output)
             return;
 
         std::vector servos = { s3, s4, s5, s6 };
@@ -2482,8 +2515,8 @@ struct robot_interface_t {
         static tp last_batch = clk::now();
         tp now_batch = clk::now();
         static bool constant_speed = false;
-        static int u_period = 20;
-        static int m_period = 2000;
+        static int u_period = 10;
+        static int m_period = 200;
         static int t_overlap = 0;
         int r_period = int(std::chrono::duration_cast<dur>(now_batch - last_batch).count()) + t_overlap;
 
@@ -2538,16 +2571,19 @@ struct robot_interface_t {
             {
             rs.last_cmd = now_batch;
 
-            if (abs(dist) < rs.min_diff)
+            if (abs(dist) < rs.min_diff) {
+                rs.pos = targeti;
+                rs.real_pos = targeti;
                 continue;
+            }
 
             int mv = (r_period/1000.0f) * rs.deg_per_second;
             int mvdist = rs.real_pos - intrp;
             float accel = mvdist / (float)mv;
-            float jerk = mvdist * (float)mv / (float)mv;
+            float jerk = (mvdist * (float)mv) / (float)mv;
             int rintrp = intrp;
 
-            if (fabs(jerk) > mv / 2) {
+            if (fabs(jerk) > mv / 2 && mvdist > 0) {
                 intrp += (mvdist / 2); //limit jerk
             }
 
@@ -2557,6 +2593,7 @@ struct robot_interface_t {
             
             if (debug_mode)
                 fprintf(stderr, "Send constant time s%i (%i -> %i (jerk comp %i)) (mvdist %i) (%i %.2f) = %i (%i ms %i intpersec) accel %.2f jerk %.2f\n", rs.id, initialp, rintrp, intrp, mvdist, targeti, targetf, dist, r_period, mv, accel, jerk);
+            
             cmds.push_back({rs.id, intrp});
             }
         }
@@ -2573,7 +2610,7 @@ struct robot_interface_t {
             //set_servos({cmd}, 1000);
     }
 
-    robot_interface_t() {
+    robot_interface_t(bool permit_virtual = false):virtual_output(permit_virtual) {
         init();
     }
 
@@ -2659,6 +2696,9 @@ struct robot_interface_t {
 
     //set no check
     void servos_off() {
+        if (!handle)
+            return;
+
         unsigned char cmd[11] = { 0x55, 0x55, 9, 20, 6, 1, 2, 3, 4, 5, 6 };
         hid_write(handle, &cmd[0], 11);
         usleep(100000); //why doesn't the command work every time, im trying to fix it
@@ -2669,12 +2709,47 @@ struct robot_interface_t {
         handle = nullptr;
     }
 
+    void set_robot_defaults() {
+        /*
+        https://github.com/migsdigs/Hiwonder_xArm_ESP32
+        1: 0.39 sec/60deg, 160 deg - or (60*375/90/0.39) = 641.03/s
+        6-2: 0.22 sec/60deg, 240 deg - or (60*375/90/0.22) = 1136.4/s
+        */
+
+        int dmin = 200;
+        int dmax = 800;
+        int dhome = 500;
+        int dpos = 500;
+        int drp = 500;
+        float dconv = 90.0f / 375.0f;
+        float dps = 500.0f;
+        robot_servo servos[6] = {
+            { 1, 200, 850, dhome, dpos, drp, 641.0f, dconv }, // gripper
+            { 2, 50, 850, dhome, dpos, drp, 700.0f, dconv }, // wrist
+            { 3, 100, 900, dhome, dpos, drp, 850.0f, dconv }, // 3
+            { 4, 1, 1042, 502, dpos, drp, 700.0f, -dconv }, // 4 (inverted)
+            { 5, 148, 882, 505, dpos, drp, 350.0f, dconv }, // 5
+            { 6, 1, 1146, 482, dpos, drp, 700.0f, dconv }  // base
+        };
+
+        for (int i = 0; i < 6; i++)
+            robot_servos.insert({servos[i].id, servos[i]});
+
+        if (!handle && virtual_output)
+            serial_number = "Virtual Robot";
+    }
+
     int open(unsigned short vendor_id, unsigned short product_id, wchar_t *serial_number_w = nullptr) {
         if (handle)
             close();
         handle = hid_open(vendor_id, product_id, serial_number_w);
 
         if (!handle) {
+            if (virtual_output) {
+                fprintf(stderr, "No handle, create virtual output\n");
+                set_robot_defaults();
+                return glsuccess;
+            }
             std::wstring err = hid_error(0);
             std::string rr(err.begin(), err.end());
             fprintf(stderr, "Not connected to robot, (nonfatal) reason: %s\n", rr.c_str());
@@ -2697,31 +2772,7 @@ struct robot_interface_t {
         hid_set_nonblocking(handle, 0);
         fprintf(stderr, "Open robot connection\n");
 
-        /*
-        https://github.com/migsdigs/Hiwonder_xArm_ESP32
-        1: 0.39 sec/60deg, 160 deg - or (60*375/90/0.39) = 641.03/s
-        6-2: 0.22 sec/60deg, 240 deg - or (60*375/90/0.22) = 1136.4/s
-        */
-
-        int dmin = 200;
-        int dmax = 800;
-        int dhome = 500;
-        int dpos = 500;
-        int drp = 500;
-        float dconv = 90.0f / 375.0f;
-        float dps = 500.0f;
-        robot_servo servos[6] = {
-            { 1, 200, 850, dhome, dpos, drp, dps, dconv }, // gripper
-            { 2, 50, 850, dhome, dpos, drp, dps, dconv }, // wrist
-            { 3, dmin, dmax, dhome, dpos, drp, dps, dconv }, // 3
-            { 4, 1, 1042, 502, dpos, drp, 700.0f, -dconv }, // 4 (inverted)
-            { 5, 148, 882, 505, dpos, drp, dps, dconv }, // 5
-            { 6, 1, 1146, 482, dpos, drp, 700.0f, dconv }  // base
-        };
-
-        for (int i = 0; i < 6; i++)
-            robot_servos.insert({servos[i].id, servos[i]});
-
+        set_robot_defaults();
         read_all();
 
         for (auto &rs : robot_servos)
@@ -2767,7 +2818,7 @@ inline float segment_t::get_rotation() {
         auto &rb = robot_interface->robot_servos;
         if (rb.contains(servo_num)) {
             auto &rs = rb[servo_num];
-            return rs.get_deg(rs.get_interpolated_pos());
+            return rs.get_deg<float>(rs.get_interpolated_pos<float>());
         }
     }
     return rotation;
@@ -2823,7 +2874,7 @@ std::string segment_debug_info() {
         int cv = seg->get_clamped_rotation();
         if (rs.contains(seg->servo_num)) {
             auto &rv = rs[seg->servo_num];
-            cv = rv.get_int(cv);
+            return std::format("  {}: {}  {}\n", seg->servo_num, cv, rv.get_int(cv));
         }
         return std::format("  {}: {}\n", seg->servo_num, cv);
     };
@@ -2844,7 +2895,7 @@ void update_debug_info() {
         debug_objects->add_sphere(robot_target, s3->model_scale);
 
         snprintf(char_buf, bufsize, 
-        "%.0f FPS\nCamera %.2f %.2f %.2f\nFacing %.2f %.2f\nTarget %.2f %.2f %.2f\ns3 %.2f %.2f %.2f\n%s%s%s",
+        "%.0lf FPS\nCamera %.2f %.2f %.2f\nFacing %.2f %.2f\nTarget %lf %lf %lf\ns3 %.2f %.2f %.2f\n%s%s%s",
         fps, 
         camera->position.x, camera->position.y, camera->position.z,
         camera->yaw,camera->pitch,
@@ -2864,6 +2915,13 @@ void calcFps() {
     double nowTime = glfwGetTime();
     deltaTime = nowTime - lastTime;
     lastTime = nowTime;
+
+    static auto now_time = hrc::now();
+    static auto diff_time = hrc::now();
+    diff_time = now_time;
+    now_time = hrc::now();
+    deltaTime = dur(now_time - diff_time).count();
+
 
     end = hrc::now();
     duration = end - start;
@@ -2901,7 +2959,7 @@ int init_context() {
     glfwSetCursorPosCallback(window, cursor_position_callback);
     glfwSetMouseButtonCallback(window, mouse_button_callback);
     glfwSetJoystickCallback(joystick_callback);
-    glfwSwapInterval(1);
+    //glfwSwapInterval(1);
 
     glfwGetWindowPos(window, &initial_window.x, &initial_window.y);
     glfwGetWindowSize(window, &initial_window[2], &initial_window[3]);
@@ -2973,12 +3031,12 @@ int init() {
         textProgram->mixFactor
     };
 
-    bool extra_slider_hidden = true;
+    bool extra_slider_hidden = false;
     for (int i = 0; i < (sizeof defaults / sizeof defaults[0]); i++) {
         int stepover = 8;
         if (i == stepover)
             sliderPos += glm::vec4(sliderPos[2]+0.1,0,0,0);
-        slider_whatever.push_back(debugInfo->add_child(new ui_slider_t(window, sliderPos + (sliderAdd * glm::vec4(float(i % stepover))), defaults[i]-2., defaults[i]+2., defaults[i], "", false, update_whatever, false, true)));
+        slider_whatever.push_back(debugInfo->add_child(new ui_slider_t(window, sliderPos + (sliderAdd * glm::vec4(float(i % stepover))), defaults[i]-2., defaults[i]+2., defaults[i], "", false, update_whatever, false, extra_slider_hidden)));
     }
 
     debugInfo->hidden = !debug_mode;
@@ -3011,7 +3069,7 @@ int init() {
     kinematics = new kinematics_t();
 
     joysticks = new joystick_t;
-    robot_interface = new robot_interface_t;
+    robot_interface = new robot_interface_t(true);
 
     return glsuccess;
 }
@@ -3063,7 +3121,7 @@ int main() {
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         handle_keyboard(window, deltaTime);
-        joysticks->update();
+        joysticks->update(deltaTime * 60.0);
         robot_interface->update();
 
         mainProgram->use();

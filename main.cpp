@@ -49,6 +49,7 @@ glm::vec<4, int> current_window;
 bool fullscreen;
 bool debug_mode = false;
 bool userinput_kinematic = false;
+bool model_interpolation = true;
 float mouseSensitivity = 0.05f;
 float preciseSpeed = 0.1f;
 float movementSpeed = 10.0f;
@@ -67,7 +68,7 @@ segment_t *sBase, *s6, *s5, *s4, *s3;
 std::vector<segment_t*> segments;
 debug_object_t *debug_objects;
 ui_text_t *debugInfo;
-ui_toggle_t *debugToggle;
+ui_toggle_t *debugToggle, *interpolatedToggle, *resetToggle, *resetConnectionToggle;
 ui_slider_t *slider6, *slider5, *slider4, *slider3, *slider_ambient, *slider_diffuse, *slider_specular, *slider_shininess;
 std::vector<ui_slider_t*> slider_whatever;
 ui_element_t *uiHandler, *ui_servo_sliders;
@@ -826,6 +827,8 @@ struct segment_t : public mesh_t {
         return clamp(rotation, -180, 180);
     }
 
+    inline float get_rotation();
+
     float get_length() {
         return length * model_scale;
     }
@@ -846,7 +849,7 @@ struct segment_t : public mesh_t {
         if (!parent)
             return glm::rotate(glm::mat4(1.0f), glm::radians(-90.0f), glm::vec3(x_axis));
 
-        return glm::rotate(parent->get_rotation_matrix(), glm::radians(rotation), rotation_axis);
+        return glm::rotate(parent->get_rotation_matrix(), glm::radians(get_rotation()), rotation_axis);
     }
 
     glm::mat4 get_model_transform() {
@@ -1493,18 +1496,18 @@ struct ui_slider_t : public ui_element_t {
         return std::string(buf);
     }
 
-    virtual void set_value(ui_slider_v v) {
+    virtual void set_value(ui_slider_v v, bool callback = true) {
         ui_slider_v _vset = v;
         if (limit)
             _vset = clip(_vset, min, max);
         //printf("value <%f,%f>\n", v, _vset);
+        this->value = _vset;
         if (value_text) {
             auto slider = get_slider_position();
             value_text->XYWH = glm::vec4(slider.x, text_pos_y + XYWH.y - value_subpos_y, 0,0);
             value_text->set_string(vtos(value));
         }
-        this->value = _vset;
-        if (value_change_callback)
+        if (value_change_callback && callback)
             value_change_callback(this, this->value);
         modified = true;
     }
@@ -2090,12 +2093,12 @@ struct kinematics_t {
         for (int i = 0; i < segments.size(); i++)
             segments[i]->rotation = rot_out[i] * 360.0f;
 
-        userinput_kinematic = true;
+        //userinput_kinematic = true;
         
-        slider3->set_value(s3->get_clamped_rotation());
-        slider4->set_value(s4->get_clamped_rotation());
-        slider5->set_value(s5->get_clamped_rotation());
-        slider6->set_value(s6->get_clamped_rotation());
+        slider3->set_value(s3->get_clamped_rotation(), false);
+        slider4->set_value(s4->get_clamped_rotation(), false);
+        slider5->set_value(s5->get_clamped_rotation(), false);
+        slider6->set_value(s6->get_clamped_rotation(), false);
 
         return glsuccess;
     }
@@ -2735,6 +2738,11 @@ struct robot_interface_t {
         handle = nullptr;
     }
 
+    // Try to close and open connection, do not destroy
+    void reset(unsigned short vendor_id, unsigned short product_id, wchar_t *serial_number_w = nullptr) {
+        open(vendor_id, product_id, serial_number_w);
+    }
+
     std::string debug_info() {
         std::string ret;
         ret += std::format("USB: {}\n", serial_number);
@@ -2754,13 +2762,25 @@ void joystick_t::query_robot() {
     fputs("\n", stderr);
 }
 
+inline float segment_t::get_rotation() {
+    if (model_interpolation) {
+        auto &rb = robot_interface->robot_servos;
+        if (rb.contains(servo_num)) {
+            auto &rs = rb[servo_num];
+            return rs.get_deg(rs.get_interpolated_pos());
+        }
+    }
+    return rotation;
+}
+
 void servo_slider_update(ui_slider_t* ui, ui_slider_t::ui_slider_v value) {
-    if (userinput_kinematic)
-        return;
+    //if (userinput_kinematic)
+    //   return;
     s6->rotation = slider6->value;
     s5->rotation = slider5->value;
     s4->rotation = slider4->value;
     s3->rotation = slider3->value;
+    robot_target = s3->get_origin() + s3->get_segment_vector();
 }
 
 void update_whatever(ui_slider_t* ui, ui_slider_t::ui_slider_v value) {
@@ -2794,6 +2814,26 @@ void update_whatever(ui_slider_t* ui, ui_slider_t::ui_slider_v value) {
     ui_servo_sliders->reset();
 }
 
+std::string segment_debug_info() {
+    std::string ret = "Rotation\n";
+
+    auto &rs = robot_interface->robot_servos;
+
+    auto get_segment = [&](segment_t *seg) {
+        int cv = seg->get_clamped_rotation();
+        if (rs.contains(seg->servo_num)) {
+            auto &rv = rs[seg->servo_num];
+            cv = rv.get_int(cv);
+        }
+        return std::format("  {}: {}\n", seg->servo_num, cv);
+    };
+
+    return ret + get_segment(s3) +
+                 get_segment(s4) +
+                 get_segment(s5) +
+                 get_segment(s6);
+}
+
 void update_debug_info() {
     {
         const int bufsize = 1000;
@@ -2804,14 +2844,14 @@ void update_debug_info() {
         debug_objects->add_sphere(robot_target, s3->model_scale);
 
         snprintf(char_buf, bufsize, 
-        "%.0f FPS\nCamera %.2f %.2f %.2f\nFacing %.2f %.2f\nTarget %.2f %.2f %.2f\ns3 %.2f %.2f %.2f\nRotation %.2f %.2f %.2f %.2f\n%s%s",
+        "%.0f FPS\nCamera %.2f %.2f %.2f\nFacing %.2f %.2f\nTarget %.2f %.2f %.2f\ns3 %.2f %.2f %.2f\n%s%s%s",
         fps, 
         camera->position.x, camera->position.y, camera->position.z,
         camera->yaw,camera->pitch,
         robot_target.x, robot_target.y, robot_target.z,
         s3_t.x,s3_t.y,s3_t.z,
-        s6->rotation, s5->rotation, s4->rotation, s3->rotation,
         joysticks->debug_info().c_str(),
+        segment_debug_info().c_str(),
         robot_interface->debug_info().c_str()
         );
         debugInfo->set_string(&char_buf[0]);
@@ -2946,10 +2986,19 @@ int init() {
         debug_mode = state;
         debugInfo->hidden = !debug_mode;
     }));
-    debugInfo->add_child(new ui_toggle_t(window, {-.865, .925,.05,.05}, "Reset", false, [](ui_toggle_t *ui, bool state) {
+    resetToggle = debugInfo->add_child(new ui_toggle_t(window, {-.865, .925,.05,.05}, "Reset", false, [](ui_toggle_t *ui, bool state) {
         if (state)
             uiHandler->reset();
         reset();
+    }));
+    interpolatedToggle = debugInfo->add_child(new ui_toggle_t(window, {-.755, .925, .05, .05}, "Intrp", model_interpolation, [](ui_toggle_t *ui, bool state){
+        model_interpolation = state;
+    }));
+    resetConnectionToggle = debugInfo->add_child(new ui_toggle_t(window, {-.645, .925, .05, .05}, "Conn", false, [](ui_toggle_t *ui, bool state) {
+        if (state) {
+            robot_interface->reset(1155, 22352);
+            resetConnectionToggle->set_state(false);
+        }
     }));
 
     sBase = new segment_t(nullptr, z_axis, z_axis, 46.19, 7);
@@ -3100,7 +3149,8 @@ void cursor_position_callback(GLFWwindow *window, double x, double y) {
 
 void handle_keyboard(GLFWwindow* window, float deltaTime) {
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
-        glfwSetWindowShouldClose(window, true);
+        hint_exit();
+        return;
     }
 
     static tp last_toggle = hrc::now();
@@ -3200,6 +3250,5 @@ void handle_keyboard(GLFWwindow* window, float deltaTime) {
 }
 
 void joystick_callback(int jid, int event) {
-    //printf("%i, %i\n", jid, event);
     joysticks->query_joysticks();
 }

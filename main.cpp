@@ -1175,6 +1175,18 @@ struct ui_element_t {
         return glsuccess;
     }
 
+    virtual bool set_hidden() {
+        this->hidden = true;
+        auto ret = run_children(&ui_element_t::set_hidden);
+        return true;
+    }
+
+    virtual bool set_visible() {
+        this->hidden = false;
+        auto ret = run_children(&ui_element_t::set_visible);
+        return true;
+    }
+
     virtual glm::vec2 get_cursor_position() {
         double x, y;
         int width, height;
@@ -1437,10 +1449,11 @@ struct ui_slider_t : public ui_element_t {
     float text_pos_y;
     std::string title_cached;
 
-    ui_slider_t(GLFWwindow *window, glm::vec4 XYWH, ui_slider_v min, ui_slider_v max, ui_slider_v value, std::string title = std::string(), bool limit = true, callback_t value_change_callback = callback_t(), bool skip_text = false)
+    ui_slider_t(GLFWwindow *window, glm::vec4 XYWH, ui_slider_v min, ui_slider_v max, ui_slider_v value, std::string title = std::string(), bool limit = true, callback_t value_change_callback = callback_t(), bool skip_text = false, bool hidden = false)
     :ui_element_t(window, XYWH),min(min),max(max),value(value),initial_value(value),cursor_drag(false),limit(limit),skip_text(skip_text),title_cached(title) {
         title_text = min_text = max_text = value_text = 0;
         title_pos_y = text_pos_y = 0;
+        this->hidden = hidden;
         if (!skip_text) {
             if (title.size() > 0) {
                 title_text = add_child(new ui_text_t(window, XYWH));
@@ -1557,6 +1570,9 @@ struct ui_slider_t : public ui_element_t {
     }
 
     bool onCursor(double x, double y) override {
+        if (hidden)
+            return glsuccess;
+
         if (cursor_drag) {
             bool shift = (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS);
             float fact = shift ? precise_factor : 1.;
@@ -1612,6 +1628,9 @@ struct ui_slider_t : public ui_element_t {
     }
 
     bool onMouse(int button, int action, int mods) override {
+        if (hidden)
+            return glsuccess;
+
         if (cursor_drag && button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS) {
             cursor_drag = false;
             userinput_kinematic = true;
@@ -1670,7 +1689,7 @@ struct ui_slider_t : public ui_element_t {
         if (modified)
             mesh();
 
-        if (vertexCount < 1)
+        if (vertexCount < 1 || hidden)
             return glsuccess;
 
         textProgram->use();
@@ -2876,11 +2895,12 @@ int init() {
         textProgram->mixFactor
     };
 
+    bool extra_slider_hidden = true;
     for (int i = 0; i < (sizeof defaults / sizeof defaults[0]); i++) {
         int stepover = 8;
         if (i == stepover)
             sliderPos += glm::vec4(sliderPos[2]+0.1,0,0,0);
-        slider_whatever.push_back(debugInfo->add_child(new ui_slider_t(window, sliderPos + (sliderAdd * glm::vec4(float(i % stepover))), defaults[i]-2., defaults[i]+2., defaults[i], "", false, update_whatever, false)));
+        slider_whatever.push_back(debugInfo->add_child(new ui_slider_t(window, sliderPos + (sliderAdd * glm::vec4(float(i % stepover))), defaults[i]-2., defaults[i]+2., defaults[i], "", false, update_whatever, false, true)));
     }
 
     debugInfo->hidden = !debug_mode;

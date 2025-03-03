@@ -2102,11 +2102,67 @@ struct kinematics_t {
 };
 
 struct joystick_t {
-    std::map<int, std::pair<std::string, GLFWgamepadstate>> joysticks;
-    std::map<int, std::map<int, bool>> joystick_held;
-    std::map<int, std::vector<float>> joystick_deadzones;
+    struct joystick_device_t {
+        joystick_device_t(int jid):joystick_device_t(get_device(jid).second) {}
+        joystick_device_t() {}
+        
+        int axis_count, button_count, jid;
+        std::string guid, name, gp_name;
+        std::map<int, bool> held_buttons;
+        std::vector<float> deadzones;
+        GLFWgamepadstate state;
+
+        // call keys to update their state and get the updated state, stash output if need be, calling twice will ruin press detection
+        int get_button(int button) {
+            if (state.buttons[button]) {
+                if (held_buttons[button]) {
+                    return GLFW_REPEAT;
+                }
+                held_buttons[button] = 1;
+                return GLFW_PRESS;
+            }
+            held_buttons[button] = 0;
+            return 0;
+        }
+
+        static std::pair<std::string, joystick_device_t> get_device(int jid) {
+            std::pair<std::string, joystick_device_t> kv;
+
+            auto &jd = kv.second;
+            jd.jid = jid;
+            const char *guid = glfwGetJoystickGUID(jid);
+            const char *gp_name = glfwGetGamepadName(jid);
+            const char *name = glfwGetJoystickName(jid);
+
+            assert(guid && "GUID null\n");
+
+            if (!guid) 
+                jd.guid = std::to_string((size_t)glfwGetJoystickUserPointer(jid));
+            else
+                jd.guid = guid;
+            if (!gp_name) 
+                jd.gp_name = "Generic";
+            else
+                jd.gp_name = gp_name;
+            if (!name) 
+                jd.name = "Joystick";
+            else
+                jd.name = name;
+
+            kv.first = jd.guid;
+
+            glfwGetJoystickAxes(jid, &jd.axis_count);
+            glfwGetJoystickButtons(jid, &jd.button_count);
+            
+            jd.deadzones.assign(jd.axis_count, 0.0f);
+
+            return kv;
+        }
+    };
+
+    std::map<std::string, joystick_device_t> joysticks;
+    
     bool pedantic_debug = false;
-    bool button_held = false;
     bool camera_move = false;
 
     std::map<int, std::string> button_mapping = {
@@ -2132,8 +2188,9 @@ struct joystick_t {
 
     void set_robot() {
         for (auto &joy : joysticks) {
-            auto &jid = joy.first;
-            auto &gp = joy.second.second;
+            auto &guid = joy.first;
+            auto &jd = joy.second;
+            auto &gp = jd.state;
             auto &axes = gp.axes;
             auto &buttons = gp.buttons;
             float tolerance = 0.15;
@@ -2200,87 +2257,62 @@ struct joystick_t {
 
     void process_input() {
         for (auto &joy : joysticks) {
-            auto &jid = joy.first;
-            auto &gp = joy.second.second;
-            auto &axes = gp.axes;
-            auto &buttons = gp.buttons;
-            auto dz = joystick_deadzones[jid].data();
-            auto &jh = joystick_held[jid];
+            auto &jd = joy.second;
+            auto &gp = jd.state;
+            auto dz = jd.deadzones.data();
 
-            if (buttons[GLFW_GAMEPAD_BUTTON_GUIDE]) {
-                memcpy(dz, &axes, 4 * sizeof dz[0]);
+            if (jd.get_button(GLFW_GAMEPAD_BUTTON_GUIDE))
+                memcpy(dz, &gp.axes, 4 * sizeof dz[0]);
+
+            if (jd.get_button(GLFW_GAMEPAD_BUTTON_LEFT_BUMPER) + 
+                jd.get_button(GLFW_GAMEPAD_BUTTON_RIGHT_BUMPER) == 3)
+                pedantic_debug = !pedantic_debug;
+
+            if (jd.get_button(GLFW_GAMEPAD_BUTTON_BACK) == GLFW_PRESS)
+                camera_move = !camera_move;
+
+            if (jd.get_button(GLFW_GAMEPAD_BUTTON_START) == GLFW_PRESS)
+                ::reset();
+
+            if (jd.get_button(GLFW_GAMEPAD_BUTTON_Y) == GLFW_PRESS) {
+                debug_mode = !debug_mode;
+                debugInfo->hidden = !debug_mode;
+                debugToggle->modified = true;
+                debugToggle->toggle_state = debug_mode;
             }
 
-            if (buttons[GLFW_GAMEPAD_BUTTON_LEFT_BUMPER] && 
-                buttons[GLFW_GAMEPAD_BUTTON_RIGHT_BUMPER]) {
-                if (!button_held)
-                    pedantic_debug = !pedantic_debug;
-                button_held = true;
-            } else {
-                button_held = false;
-            }
+            if (jd.get_button(GLFW_GAMEPAD_BUTTON_X) == GLFW_PRESS)
+                query_robot();
 
-            if (buttons[GLFW_GAMEPAD_BUTTON_BACK]) {
-                if (!jh[GLFW_GAMEPAD_BUTTON_BACK]) {
-                    camera_move = !camera_move;
-                }
-            }
-
-            if (buttons[GLFW_GAMEPAD_BUTTON_START]) {
-                if (!jh[GLFW_GAMEPAD_BUTTON_START]) {
-                    ::reset();
-                }
-            }
-
-            if (buttons[GLFW_GAMEPAD_BUTTON_Y]) {
-                if (!jh[GLFW_GAMEPAD_BUTTON_Y]) {
-                    debug_mode = !debug_mode;
-                    debugInfo->hidden = !debug_mode;
-                    debugToggle->modified = true;
-                    debugToggle->toggle_state = debug_mode;
-                }
-            }
-
-            if (buttons[GLFW_GAMEPAD_BUTTON_X]) {
-                if (!jh[GLFW_GAMEPAD_BUTTON_X]) {
-                    query_robot();
-                }
-            }
-
-            for (int i = 0; i < 4; i++) {
+            for (int i = 0; i < 4; i++)
                 gp.axes[i] -= dz[i];
-            }
-
-            for (int i = 0; i < GLFW_GAMEPAD_BUTTON_LAST; i++) {
-                jh.insert_or_assign(i, buttons[i]);
-            }
         }
     }
 
     void update() {
         for (auto &joy : joysticks) {
-            auto &jid = joy.first;
-            GLFWgamepadstate *st = &joy.second.second;
-            if (!glfwGetGamepadState(jid, st)) {
-                int count;
-                const float *axes = glfwGetJoystickAxes(jid, &count);
-                if (count < 6) {
-                    fprintf(stderr, "6 axes required\n");
-                    joy.second.first = "6 axes required";
-                    continue;
-                } else {
-                    if (count > 6) {
-                        fprintf(stderr, "More than 6 axes detected\n");
-                    }
-                    count = 6;
+            auto &jd = joy.second;
+            GLFWgamepadstate *st = &jd.state;
+            if (!glfwGetGamepadState(jd.jid, st)) {
+                const float *axes = glfwGetJoystickAxes(jd.jid, &jd.axis_count);
+                const unsigned char *buttons = glfwGetJoystickButtons(jd.jid, &jd.button_count);
+
+                if (jd.axis_count < 6 || jd.axis_count > 6) {
+                    // redundant message, axis/button count available in the device object
+                    //std::string msg = std::format("{} axes required (found {})", 6, jd.axis_count);
+                    //jd.gp_name = msg;
+                    if (jd.axis_count < 6)
+                        continue;
+                    // copy count based off GLFWgamepadstate
+                    //jd.axis_count = 6;
                 }
-                memcpy(&st->axes, axes, count * sizeof axes[0]);
+
+                memcpy(&st->axes, axes, sizeof st->axes);
+                memcpy(&st->buttons, buttons, sizeof st->buttons);
+
+                // remap for the controller im using
                 std::swap(st->axes[2], st->axes[4]);
                 std::swap(st->axes[3], st->axes[2]);
-                assert(count < 7 && "Axes count greater than 6");
-                const unsigned char *buttons = glfwGetJoystickButtons(jid, &count);
-                assert(count < 16 && "Button count greater than 15");
-                memcpy(&st->buttons, buttons, count);
             }
         }
 
@@ -2292,14 +2324,13 @@ struct joystick_t {
         std::string info;
         for (auto &joy : joysticks) {
             auto &jid = joy.first;
-            info += std::format("Joystick {}: {}\n", jid, joy.second.first);
-            if (glfwJoystickIsGamepad(jid))
-                info += "  Gamepad\n";
-            auto &gp = joy.second.second;
+            auto &jd = joy.second;
+            info += std::format("Joystick: {}\n  Axes: {}\n  Buttons: {}\n  Jid: {}\n", jd.gp_name, jd.axis_count, jd.button_count, jd.jid);
+            auto &gp = jd.state;
             for (int i = 0; i < sizeof gp.axes / sizeof gp.axes[0]; i++) {
                 info += std::format("  {}: {}\n", axis_mapping[i], gp.axes[i]);
             }
-            auto &jh = joystick_held[jid];
+            auto &jh = jd.held_buttons;
             for (int i = 0; i < sizeof gp.buttons / sizeof gp.buttons[0]; i++) {
                 if (button_mapping.contains(i))
                     info += std::format("  {}: {} {}\n", button_mapping[i], gp.buttons[i], jh[i]);
@@ -2307,15 +2338,19 @@ struct joystick_t {
                 if (pedantic_debug)
                     info += std::format("  {}: {} {}\n", i, gp.buttons[i], jh[i]);
             }
+            /*
+            const auto *buttons = glfwGetJoystickButtons(jd.jid, &jd.button_count);
+            for (int i = 0; i < jd.button_count; i++)
+                info += std::format("+{}: {}{}", i, buttons[i], (i+1) % 4 == 0 ? '\n' : ' ');
+            info += "\n";
+            */
         }   
         return info;
     }
 
-    void remove(const int &jid) {
-        fprintf(stderr, "Remove joystick %i\n", jid);
-        joysticks.erase(jid);
-        joystick_deadzones.erase(jid);
-        joystick_held.erase(jid);
+    void remove(const std::string &guid) {
+        fprintf(stderr, "Remove joystick %s\n", guid.c_str());
+        joysticks.erase(guid);
     }
 
     void reset() {
@@ -2323,36 +2358,39 @@ struct joystick_t {
     }
 
     void query_joysticks() {
-        // Fix joystick reordering when devices are added/removed
-        joysticks.clear();
-        joystick_deadzones.clear();
-        joystick_held.clear();
+        std::map<std::string, joystick_device_t> joys;
+        static bool first_run = true;
+
         for (int jid = GLFW_JOYSTICK_1; jid < GLFW_JOYSTICK_LAST; jid++) {
-            if (!glfwJoystickPresent(jid)) {
-                if (joysticks.contains(jid)) {
-                    //return;
-                    remove(jid);
-                }
+            if (!glfwJoystickPresent(jid))
                 continue;
-            }
-            
-            int count;
-            const float *axes = glfwGetJoystickAxes(jid, &count);
-            if (count != 6) {
-                fprintf(stderr, "6 axes joystick device required\n");
+
+            // Note, GUID can match two discrete joysticks from a single device
+
+            auto kv = joystick_device_t::get_device(jid);
+            auto &jd = kv.second;
+
+            if (joysticks.contains(kv.first)) {
+                joys.insert({kv.first, joysticks[kv.first]});
                 continue;
             }
 
-            const char *name = glfwGetJoystickName(jid);
-            auto gp = GLFWgamepadstate();
-            memset(&gp, 0, sizeof gp);
-            if (!name)
-                name = "Unnamed";
-            fprintf(stderr, "Add joystick %i\n", jid);
-            joysticks.insert({jid, {name, gp}});
-            joystick_deadzones.insert({jid, {0,0,0,0}});
-            joystick_held.insert({jid, {}});
+            if (kv.second.axis_count != 6) {
+                if (first_run)
+                    fprintf(stderr, "6 axes joystick device required, device %i \"%s\" \"%s\" \"%s\"\n", jid, jd.gp_name.c_str(), jd.name.c_str(), jd.guid.c_str());
+                continue;
+            }
+
+            fprintf(stderr, "Add joystick %i \"%s\" \"%s\" \"%s\"\n", jid, jd.gp_name.c_str(), jd.name.c_str(), jd.guid.c_str());
+            joys.insert(kv);
         }
+
+        for (auto &jd : joysticks) 
+            if (!joys.contains(jd.first))
+                fprintf(stderr, "Remove joystick %i \"%s\" \"%s\" \"%s\"\n", jd.second.jid, jd.second.gp_name.c_str(), jd.second.name.c_str(), jd.second.guid.c_str());
+
+        first_run = false;
+        joysticks = joys;
         update();
     }
 };
@@ -2636,7 +2674,7 @@ struct robot_interface_t {
         if (!handle) {
             std::wstring err = hid_error(0);
             std::string rr(err.begin(), err.end());
-            fprintf(stderr, "Not connected %s\n", rr.c_str());
+            fprintf(stderr, "Not connected to robot, (nonfatal) reason: %s\n", rr.c_str());
             serial_number = "No USB";
             return glfail;
         }
@@ -2822,7 +2860,7 @@ int init_context() {
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
     glfwSetCursorPosCallback(window, cursor_position_callback);
     glfwSetMouseButtonCallback(window, mouse_button_callback);
-    //glfwSetJoystickCallback(joystick_callback);
+    glfwSetJoystickCallback(joystick_callback);
     glfwSwapInterval(1);
 
     glfwGetWindowPos(window, &initial_window.x, &initial_window.y);
@@ -3162,6 +3200,6 @@ void handle_keyboard(GLFWwindow* window, float deltaTime) {
 }
 
 void joystick_callback(int jid, int event) {
-    printf("%i, %i\n", jid, event);
+    //printf("%i, %i\n", jid, event);
     joysticks->query_joysticks();
 }

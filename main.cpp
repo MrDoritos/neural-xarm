@@ -1167,10 +1167,10 @@ struct ui_element_t {
         if (hidden)
             return glsuccess;
 
-        auto ret = run_children(&ui_element_t::render);
-
         if (pre_render_callback)
             pre_render_callback();
+
+        auto ret = run_children(&ui_element_t::render);
 
         return ret;
     }
@@ -1301,21 +1301,23 @@ struct ui_text_t : public ui_element_t {
         modified = true;
     }
 
-    void set_string(std::string str) {
+    void set_string(const std::string &str) {
         string_buffer = str;
         string_change();
     }
 
     void set_string(const char* str) {
-        set_string(std::string(str));
+        std::string s = str;
+        set_string(s);
+        string_change();
     }
 
-    void add_line(std::string str) {
+    void add_line(const std::string &str) {
         string_buffer += str + '\n';
         string_change();
     }
 
-    void add_string(std::string str) {
+    void add_string(const std::string &str) {
         string_buffer += str;
         string_change();
     }
@@ -1351,7 +1353,8 @@ struct ui_text_t : public ui_element_t {
     }
 
     virtual bool parameters_changed() {
-        return (last_used != params && last_used != &global_text_parameters) || last_used == nullptr;
+        //return (last_used != params && last_used != &global_text_parameters) || last_used == nullptr;
+        return false;
     }
 
     bool render() override {
@@ -1369,8 +1372,10 @@ struct ui_text_t : public ui_element_t {
         textProgram->use();
         textProgram->set_sampler("textureSampler", textTexture);
 
-        if (vertexCount < 1)
-            return ui_element_t::render();
+        //if (vertexCount < 1)
+        //    return ui_element_t::render();
+        if (pre_render_callback)
+            pre_render_callback();
 
         //printf("%s %i verticies\n", get_element_name().c_str(), vertexCount);
 
@@ -1402,6 +1407,9 @@ struct ui_text_t : public ui_element_t {
             modified = false;
             return glsuccess;
         }
+
+        if (!modified)
+            return glsuccess;
 
         text_t *buffer = new text_t[string_buffer.size() * 6];
 
@@ -2583,8 +2591,8 @@ struct robot_interface_t {
             float jerk = (mvdist * (float)mv) / (float)mv;
             int rintrp = intrp;
 
-            if (fabs(jerk) > mv / 2 && mvdist > 0) {
-                intrp += (mvdist / 2); //limit jerk
+            if (fabs(jerk) > mv / 2 && abs(mvdist) > 0) {
+                intrp += (mvdist / 2); //limit jerk; to-do velocity
             }
 
             //rs.set_pos(targeti);
@@ -2959,7 +2967,7 @@ int init_context() {
     glfwSetCursorPosCallback(window, cursor_position_callback);
     glfwSetMouseButtonCallback(window, mouse_button_callback);
     glfwSetJoystickCallback(joystick_callback);
-    //glfwSwapInterval(1);
+    glfwSwapInterval(1);
 
     glfwGetWindowPos(window, &initial_window.x, &initial_window.y);
     glfwGetWindowSize(window, &initial_window[2], &initial_window[3]);
@@ -3031,7 +3039,7 @@ int init() {
         textProgram->mixFactor
     };
 
-    bool extra_slider_hidden = false;
+    bool extra_slider_hidden = true;
     for (int i = 0; i < (sizeof defaults / sizeof defaults[0]); i++) {
         int stepover = 8;
         if (i == stepover)

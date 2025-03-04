@@ -47,11 +47,15 @@ struct joystick_t;
 struct robot_interface_t;
 
 using vec3_d = glm::vec<3, double>;
+using hrc = std::chrono::high_resolution_clock;
+using tp = std::chrono::time_point<hrc>;
+using dur = std::chrono::duration<double>;
+
 glm::vec<4, int> initial_window;
 glm::vec<4, int> current_window;
 bool fullscreen;
 bool debug_mode = false;
-bool userinput_kinematic = false;
+bool debug_pedantic = false;
 bool model_interpolation = true;
 float mouseSensitivity = 0.05f;
 float preciseSpeed = 0.1f;
@@ -72,13 +76,12 @@ std::vector<segment_t*> segments;
 std::vector<segment_t*> servo_segments;
 debug_object_t *debug_objects;
 ui_text_t *debugInfo;
-ui_toggle_t *debugToggle, *interpolatedToggle, *resetToggle, *resetConnectionToggle;
+ui_toggle_t *debugToggle, *interpolatedToggle, *resetToggle, *resetConnectionToggle, *pedanticToggle;
 ui_slider_t *slider6, *slider5, *slider4, *slider3, *slider2, *slider1, *slider_ambient, *slider_diffuse, *slider_specular, *slider_shininess;
 std::vector<ui_slider_t*> slider_whatever;
 std::vector<ui_slider_t*> servo_sliders;
 ui_element_t *uiHandler, *ui_servo_sliders;
 kinematics_t *kinematics;
-//glm::vec3 robot_target;
 vec3_d robot_target;
 joystick_t *joysticks;
 robot_interface_t *robot_interface;
@@ -95,10 +98,9 @@ void destroy();
 void hint_exit();
 void safe_exit(int errcode = 0);
 void set_segments_from_robot();
+void set_segments_from_sliders();
+void set_sliders_from_segments();
 
-using hrc = std::chrono::high_resolution_clock;
-using tp = std::chrono::time_point<hrc>;
-using dur = std::chrono::duration<double>;
 tp start, end;
 dur duration;
 int frameCount = 0;
@@ -108,7 +110,7 @@ double lastTime, deltaTime;
 glm::vec4 x_axis(1,0,0,0), y_axis(0,1,0,0), z_axis(0,0,1,0);
 
 struct camera_t {
-    camera_t(glm::vec3 position = {0,0,0.}, float pitch = 0., float yaw = 0.) {
+    camera_t(glm::vec3 position = {0,0,0.}, float pitch = 0., float yaw = 0., float fov = 90.) {
         position = glm::vec3(0.0f, 0.0f, 0.0f);
         up = glm::vec3(0.0f, 1.0f, 0.0f);
         front = glm::vec3(0.0f, 0.0f, -1.0f);
@@ -124,6 +126,7 @@ struct camera_t {
         this->position = position;
         this->pitch = pitch;
         this->yaw = yaw;
+        this->fov = fov;
 
         calculate_normals();
     }
@@ -195,7 +198,6 @@ struct camera_t {
         pitch = std::max(std::min(pitch, 89.9f), -89.9f);
 
         calculate_normals();
-        //printf("LookAt: yaw: %f pitch: %f\n", yaw, pitch);
     }
 
     void joystick_move(GLFWwindow *window, float pitch, float yaw) {
@@ -247,8 +249,6 @@ struct camera_t {
         if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) {
             position -= up * deltaTime * movementFactor;
         }
-
-        //printf("Position: x: %f, y: %f, z: %f\n", position.x, position.y, position.z);
     }
 };
 
@@ -318,9 +318,7 @@ struct mesh_t {
                     int indexV = 3 * tris[indexT];
 
                     indexV = (iT * 3) + iV;
-                    //float *v = &s3_test.coords[indexV];
                     float *v = &coords[3 * tris[3 * iT + iV]];
-                    //float *v = &positionCube3[(iT * 9) + (iV * 3)];
 
                     verticies[indexV].vertex = {v[0], v[1], v[2]};
                     verticies[indexV].normal = {n[0], n[1], n[2]};
@@ -377,10 +375,9 @@ struct mesh_t {
 
         glBindVertexArray(0);
 
-        if (debug_mode) {
-            //printf("Uploaded %i verticies, stride: %li, size: %li, vbo: %i, addr: %p\n", vertexCount, stride, vertexCount * sizeof verticies[0], vbo, verticies.data());
-            //printf("Vertex <min,max> <%f,%f><%f,%f><%f,%f>\n", minBound.x, maxBound.x, minBound.y, maxBound.y, minBound.z, maxBound.z);
-            //printf("Normal <min,max> <%f,%f><%f,%f><%f,%f>\n", minNormal.x, maxNormal.x, minNormal.y, maxNormal.y, minNormal.z, maxNormal.z);
+        if (debug_pedantic) {
+            printf("Uploaded %i verticies, stride: %li, size: %li, vbo: %i, addr: %p\n", vertexCount, stride, vertexCount * sizeof verticies[0], vbo, verticies.data());
+            printf("Vertex <min,max> <%f,%f><%f,%f><%f,%f>\n", minBound.x, maxBound.x, minBound.y, maxBound.y, minBound.z, maxBound.z);
         }
 
         modified = false;
@@ -393,7 +390,6 @@ struct mesh_t {
         if (!vertexCount)
             return;
 
-        //printf("Draw %i with %i verticies\n", vbo, vertexCount);
         glBindVertexArray(vao);
         glDrawArrays(GL_TRIANGLES, 0, vertexCount);
         glBindVertexArray(0);
@@ -513,7 +509,6 @@ struct shader_t {
             glGetShaderInfoLog(shaderId, infoLen, nullptr, infoLog);
             std::cerr << "Error compiling shader: " << path << std::endl;
             std::cerr << infoLog << std::endl;
-            //std::cerr << shaderCodeStr << std::endl;
             glDeleteShader(shaderId);
             return glfail;
         }
@@ -603,7 +598,6 @@ struct shaderProgram_t {
         glm::mat3 norm(model);
         norm = glm::inverse(norm);
         norm = glm::transpose(norm);
-        //return norm;
         return glm::transpose(glm::inverse(glm::mat3(1.)));
     }
 
@@ -776,7 +770,6 @@ struct debug_object_t : public mesh_t {
         for (auto &s : _spheres) {
             glm::vec3 ws = s.first;
             float r = s.second * 5;
-            //ws = ws / (camera->front * glm::mat3(camera->get_projection_matrix()));
             glm::vec3 cr = camera->right * glm::vec3(0.5f) * r;
             glm::vec3 cu = camera->up * glm::vec3(0.5f) * r;
             glm::vec3 v1 = ws + cr + cu,
@@ -792,12 +785,6 @@ struct debug_object_t : public mesh_t {
             glv(v2);
             glv(v3);
             glv(v4);
-            /*
-            glVertex3f(ws.x - r, ws.y - r, ws.z);
-            glVertex3f(ws.x - r, ws.y + r, ws.z);
-            glVertex3f(ws.x + r, ws.y + r, ws.z);
-            glVertex3f(ws.x + r, ws.y - r, ws.z);
-            */
         }
         glEnd();
 
@@ -813,13 +800,10 @@ struct segment_t : public mesh_t {
         this->length = length;
         this->servo_num = servo_num;
         this->rotation = 0.0f;
-        //this->rotation = 12.0f;
     }
 
     static glm::vec3 matrix_to_vector(glm::mat4 mat) {
         return glm::normalize(glm::vec3(mat[2]));
-        //return glm::normalize(glm::vec3(mat * glm::vec4(1.)));
-        //return glm::normalize(glm::mat3(mat) * glm::vec3(1.));
     }
 
     static inline constexpr float clamp(const float &v, const float &min, const float &max) {
@@ -869,8 +853,6 @@ struct segment_t : public mesh_t {
     }
 
     glm::mat4 get_model_transform() {
-        //model_scale = 1.0;
-        
         glm::vec3 origin = get_origin();
         glm::mat4 matrix(1.);
         
@@ -904,13 +886,6 @@ struct segment_t : public mesh_t {
     }
 
     void renderVector(glm::vec3 origin, glm::vec3 end) {
-        /*
-        glBegin(GL_LINES);
-            glColor3f(1.0,0,0);
-            glVertex3f(origin.x,origin.y,origin.z);
-            glVertex3f(end.x,end.y,end.z);
-        glEnd();
-        */
         debug_objects->add_line(origin, end);
     }
 
@@ -931,13 +906,6 @@ struct segment_t : public mesh_t {
         auto rot_mat = get_rotation_matrix();
         auto tran_rot_mat = glm::translate(rot_mat, origin);
 
-        /*
-        std::cout << "Servo: " << servo_num << std::endl;
-        std::cout << "Origin vec3d\n" << glm::to_string(origin) << std::endl;
-        std::cout << "Rotation matrix\n" << glm::to_string(rot_mat) << std::endl;
-        std::cout << "Rotation matrix translated\n" << glm::to_string(tran_rot_mat) << std::endl;
-        */
-
         renderMatrix(origin, tran_rot_mat);
     }
 
@@ -947,7 +915,7 @@ struct segment_t : public mesh_t {
         if (debug_mode)
             renderDebug();
         mainProgram->set_camera(camera, get_model_transform());
-        if (debug_mode)
+        if (debug_pedantic)
             mainProgram->set_v3("light.ambient", debug_color);
         mesh_t::render();
     }
@@ -977,8 +945,8 @@ struct text_parameters {
         texCharacterTrimY = 15.7;
         scrCharacterSpacingScaleX = 0.212;
         scrCharacterSpacingScaleY = 0.424;
-        scrScaleX = .7;//0.546;
-        scrScaleY = .7;//0.633;
+        scrScaleX = .7;
+        scrScaleY = .7;
     }
 
     text_parameters(int count, float scale, float spacing, float padding, float margin)
@@ -1007,11 +975,7 @@ struct text_parameters {
           scrCharacterTrim, scrCharacterTrimX, scrCharacterTrimY;
 
     void calculate(int character, int currentX, int currentY, v4 SCR_XYWH, v4 &CHAR_XYWH, v4 &UV_XYWH) {
-        //number of characters in x/y of texture
-        //const float texCharacterCountX = 16., texCharacterCountY = 16.;
-
         //final scale coefficient
-        //const float scrScale = 1.0f;
         const float _scrScaleX = scrScaleX * scrScale;
         const float _scrScaleY = scrScaleY * scrScale;
 
@@ -1020,7 +984,6 @@ struct text_parameters {
         const float _texCharacterHeight = 1.0f / texCharacterCountY;
 
         //spacing coefficient
-        //const float scrCharacterSpacingScale = 2.;
         const float _scrCharacterSpacingScaleX = scrCharacterSpacingScaleX * scrCharacterSpacingScale;
         const float _scrCharacterSpacingScaleY = scrCharacterSpacingScaleY * scrCharacterSpacingScale;
 
@@ -1037,12 +1000,10 @@ struct text_parameters {
         const int _characterIndexY = (character / texCharacterCountX % texCharacterCountY);
 
         //trim uv
-        //const float texCharacterTrim = 1.;
         const float _texCharacterTrimX = _texCharacterWidth/texCharacterTrimX/texCharacterTrim;//texCharacterWidth / 5.; //pad uv x
         const float _texCharacterTrimY = _texCharacterHeight/texCharacterTrimY/texCharacterTrim;//texCharacterHeight / 16.;
 
         //trim scr
-        //const float scrCharacterTrim = 1.;
         const float _scrCharacterTrimX = scrCharacterTrimX * scrCharacterTrim;//scrCharacterSpacingX / 10.;
         const float _scrCharacterTrimY = scrCharacterTrimY * scrCharacterTrim;//scrCharacterSpacingY / 10.;
 
@@ -1062,9 +1023,6 @@ struct text_parameters {
         const float _scrWidth = _scrCharacterSpacingX - _scrCharacterTrimX;
         const float _scrHeight = _scrCharacterSpacingY - _scrCharacterTrimY;
 
-        //if (character == 'F')
-        //    printf("F<%f,%f,%f,%f><%f,%f,%f,%f>\n", _scrOriginX, _scrOriginY, _scrWidth, _scrHeight, _texOriginX, _texOriginY, _texWidth, _texHeight);
-
         CHAR_XYWH = {_scrOriginX, _scrOriginY, _scrWidth, _scrHeight};
         UV_XYWH = {_texOriginX, _texOriginY, _texWidth, _texHeight};
     }
@@ -1082,7 +1040,7 @@ struct text_data {
     glm::vec2 &coords() { return *reinterpret_cast<glm::vec2*>(&data[0]); }
     glm::vec2 *coords_ptr() { return reinterpret_cast<glm::vec2*>(&data[0]); }
     glm::vec4 &tex_coords() { return *reinterpret_cast<glm::vec4*>(&data[2]); }
-    glm::vec4 *tex_coords_ptr() { return reinterpret_cast<glm::vec4*>(&data[3]); }
+    glm::vec4 *tex_coords_ptr() { return reinterpret_cast<glm::vec4*>(&data[2]); }
     vec6 *all_coords_ptr() { return reinterpret_cast<vec6*>(&data[0]); }
     vec6 &all_coords() { return *reinterpret_cast<vec6*>(&data[0]); }
 };
@@ -1107,7 +1065,6 @@ struct text_t : public text_data {
     text_t() { }
 
     void set_attrib_pointers() {
-        //printf("size %i\n", sizeof *this);
         glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof * this, (const void*) (0));
         glEnableVertexAttribArray(0);
         glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof * this, (const void*) (8));
@@ -1128,12 +1085,11 @@ void add_rect(text_t *buffer, unsigned int &vertexCount, glm::vec4 XYWH, glm::ve
         {x,y+h,u,v+vh}
     };
 
-    for (int i = 0; i < 6; i++) {
-        //buffer[vertexCount] = verticies[i];
-        memcpy(&buffer[vertexCount], &verticies[i], sizeof text_t());
+    for (int i = 0; i < sizeof verticies / sizeof verticies[0]; i++) {
+        memcpy(&buffer[vertexCount], &verticies[i], sizeof verticies[0]);
 
         if (is_color)
-            buffer[vertexCount].tex_coords() = UVWH;
+            memcpy(buffer[vertexCount].tex_coords_ptr(), &UVWH, sizeof UVWH);
 
         vertexCount++;
     }
@@ -1168,11 +1124,13 @@ struct ui_element_t {
     T* add_child(T *ui) {
         static_assert(std::is_base_of_v<ui_element_t, T> && "Not valid base");
         children.push_back(ui);
+
         return ui;
     }
 
     virtual bool redraw() {
         modified = true;
+
         return run_children(&ui_element_t::redraw);
     }
 
@@ -1198,13 +1156,15 @@ struct ui_element_t {
     virtual bool set_hidden() {
         this->hidden = true;
         auto ret = run_children(&ui_element_t::set_hidden);
-        return true;
+
+        return glsuccess;
     }
 
     virtual bool set_visible() {
         this->hidden = false;
         auto ret = run_children(&ui_element_t::set_visible);
-        return true;
+
+        return glsuccess;
     }
 
     virtual glm::vec2 get_cursor_position() {
@@ -1238,7 +1198,6 @@ struct ui_element_t {
 
     virtual bool is_cursor_bound() {
         auto cursor_pos = get_cursor_position();
-        //printf("cursor <%f,%f> win <%f,%f,%f,%f>\n", cursor_pos.x, cursor_pos.y, XYWH[0], XYWH[1], XYWH[2], XYWH[3]);
         return (cursor_pos.x >= XYWH.x && cursor_pos.y >= XYWH.y &&
                 cursor_pos.x <= XYWH.x + XYWH[2] && cursor_pos.y <= XYWH.y + XYWH[3]);
     }
@@ -1251,7 +1210,7 @@ struct ui_element_t {
         run_children(&ui_element_t::load);
 
         if (loaded) {
-            if (debug_mode)
+            if (debug_pedantic)
                 puts("Attempt to load twice");
             return glfail;
         }
@@ -1262,7 +1221,7 @@ struct ui_element_t {
         modified = true;
         loaded = true;
 
-        if (debug_mode)
+        if (debug_pedantic)
             printf("Loaded <%s,%i,%i,%i,%i,<%f,%f,%f,%f>>\n",
                 get_element_name().c_str(), vbo, vao, vertexCount,
                 modified, XYWH[0], XYWH[1], XYWH[2], XYWH[3]);
@@ -1276,12 +1235,10 @@ struct ui_element_t {
 
     template<typename... Ts>
     using _func=bool(ui_element_t*, Ts...);
-    //using void(ui_element_t::_func*, Ts...);
 
     template<typename Tfunc, typename... Ts>
     bool run_children(Tfunc func, Ts... values) {
         for (auto *element : children)
-            //((_func<Ts...>*)func)(element, values...);
             if ((element->*func)(values...))
                 return glcaught;
         return glsuccess;
@@ -1338,11 +1295,10 @@ struct ui_text_t : public ui_element_t {
     bool reset() override {
         ui_element_t::reset();
 
-        //puts("text reset");
-
         string_buffer.clear();
         modified = true;
         last_used = nullptr;
+
         return glsuccess;
     }
 
@@ -1372,7 +1328,8 @@ struct ui_text_t : public ui_element_t {
 
     bool render() override {
         if (parameters_changed()) {
-            //puts("Parameters changed");
+            if (debug_pedantic)
+                puts("Parameters changed");
             modified = true;
         }
 
@@ -1385,18 +1342,16 @@ struct ui_text_t : public ui_element_t {
         textProgram->use();
         textProgram->set_sampler("textureSampler", textTexture);
 
-        //if (vertexCount < 1)
-        //    return ui_element_t::render();
         if (pre_render_callback)
             pre_render_callback();
 
-        //printf("%s %i verticies\n", get_element_name().c_str(), vertexCount);
+        if (debug_pedantic)
+            printf("%s %i verticies\n", get_element_name().c_str(), vertexCount);
 
         glBindVertexArray(vao);
         glDrawArrays(GL_TRIANGLES, 0, vertexCount);
         glBindVertexArray(0);
 
-        //return glsuccess;
         return run_children(&ui_element_t::render);
     }
 
@@ -1485,6 +1440,7 @@ struct ui_slider_t : public ui_element_t {
         title_text = min_text = max_text = value_text = 0;
         title_pos_y = text_pos_y = 0;
         this->hidden = hidden;
+
         if (!skip_text) {
             if (title.size() > 0) {
                 title_text = add_child(new ui_text_t(window, XYWH));
@@ -1501,19 +1457,23 @@ struct ui_slider_t : public ui_element_t {
 
     virtual void set_min(ui_slider_v min) {
         this->min = min;
+
         if (min_text) {
             min_text->XYWH = XYWH + glm::vec4(-value_subpos_x,text_pos_y,0,0);
             min_text->set_string(vtos(min));
         }
+
         modified = true;
     }
 
     virtual void set_max(ui_slider_v max) {
         this->max = max;
+
         if (max_text) {
             max_text->XYWH = XYWH + glm::vec4(XYWH[2]-value_subpos_x,text_pos_y,0,0);
             max_text->set_string(vtos(max));
         }
+
         modified = true;
     }
 
@@ -1526,17 +1486,20 @@ struct ui_slider_t : public ui_element_t {
 
     virtual void set_value(ui_slider_v v, bool callback = true) {
         ui_slider_v _vset = v;
+
         if (limit)
             _vset = clip(_vset, min, max);
-        //printf("value <%f,%f>\n", v, _vset);
+            
         this->value = _vset;
         if (value_text) {
             auto slider = get_slider_position();
             value_text->XYWH = glm::vec4(slider.x, text_pos_y + XYWH.y - value_subpos_y, 0,0);
             value_text->set_string(vtos(value));
         }
+
         if (value_change_callback && callback)
             value_change_callback(this, this->value);
+
         modified = true;
     }
 
@@ -1664,7 +1627,6 @@ struct ui_slider_t : public ui_element_t {
 
         if (cursor_drag && button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS) {
             cursor_drag = false;
-            userinput_kinematic = true;
             set_value(drag_value);
             return glcaught;
         }
@@ -1840,17 +1802,9 @@ struct ui_toggle_t : public ui_element_t {
 
 struct kinematics_t {
     static glm::vec3 map_to_xy(glm::vec3 pos, float r = 0.0f, glm::vec3 a = -z_axis, glm::vec3 o = glm::vec3(0.0f), glm::vec3 t = glm::vec3(0.0f)) {
-        //auto mapped = segment_t::rotate_vector_3d(pos - o, a, r);
-        //auto matrix = glm::translate(glm::mat4(1.0f), pos - o);
         auto matrix = glm::mat4(1.0);
         matrix = glm::rotate(matrix, glm::radians(r), a);
-        //auto npos = glm::vec3(matrix[3].x, matrix[3].z, 0);
-        //auto _4npos = glm::vec4(matrix[0] + matrix[1] + matrix[2]);
-        //auto npos = glm::vec3(_4npos[0], _4npos[2], _4npos[1]);
-        //return npos + t;
         auto _pos = pos - o;
-        //_pos = pos;
-        //matrix = glm::translate(matrix, -o);
 
         return glm::vec3(matrix * glm::vec4(_pos.x,_pos.y,_pos.z,1)) + t;
     }
@@ -1882,35 +1836,30 @@ struct kinematics_t {
         auto deg_6 = rot_6 * 360.0f;
         auto serv_6 = rot_6;
 
-        //s6->rotation = serv_6;
-
         glm::vec3 seg_5 = s5->get_origin();
         glm::vec3 seg_5_real = glm::vec3(seg_5.x, seg_5.z, seg_5.y);
-        //auto seg5_2d = glm::vec3(seg_5.x, seg_5.z, 0);
         glm::vec3 target_for_calc = target_coords;
 
         auto target_pl3d = map_to_xy(target_for_calc, deg_6, y_axis, seg_5);
         auto target_pl2d = glm::vec2(target_pl3d.x, target_pl3d.y);
         auto plo3d = glm::vec3(0.0f);
         auto plo2d = glm::vec2(0.0f);
-        //plo2d = target_pl2d;
         auto pl3d = glm::vec3(500.0f, 0.0f, 0.0f);
         auto pl2d = glm::vec2(pl3d);
         auto s2d = glm::vec2(500);
 
         std::vector<segment_t*> remaining_segments;
         remaining_segments.assign(segments.begin() + 2, segments.end());
-        //std::reverse(remaining_segments.begin(), remaining_segments.end());
 
         glm::vec2 prev_origin = target_pl2d;
         std::vector<glm::vec2> new_origins;
 
-        if (debug_mode)
+        if (debug_pedantic)
             printf("target_pl2d <%.2f,%.2f> target_pl3d <%.2f,%.2f,%.2f> target_real <%.2f,%.2f,%.2f> seg_5 <%.2f,%.2f,%.2f> deg_6: %.2f\n", target_pl2d.x, target_pl2d.y, target_pl3d.x, target_pl3d.y, target_pl3d.z, target_coords.x, target_coords.y, target_coords.z, seg_5.x, seg_5.y, seg_5.z, deg_6);
 
         while (true) {
             if (remaining_segments.size() < 1) {
-                if (debug_mode)
+                if (debug_pedantic)
                     puts("No more segments");
                 break;
             }
@@ -1931,7 +1880,7 @@ struct kinematics_t {
             bool skip_optim = false;
 
             if (remaining_segments.size() < 3) {
-                if (debug_mode)
+                if (debug_pedantic)
                     puts("2 or less segments left");
                 skip_optim = true;
             }
@@ -1948,51 +1897,51 @@ struct kinematics_t {
             float rem_ex2 = rem_extend * 1.75f;
             float rem_max = segment_radius * 0.95f;
 
-            if (debug_mode)
+            if (debug_pedantic)
                 printf("servo: %i, rem_dist: %.2f, rem_max: %.2f, equal_mp: %.2f, segment_radius: %.2f, dist_origin_to_prev: %.2f, dist_to_segment: %.2f, total_length: %.2f, prev_origin <%.2f,%.2f>\n", seg->servo_num, rem_dist, rem_max, equal_mp, segment_radius, dist_origin_to_prev, dist_to_segment, total_length, prev_origin.x, prev_origin.y);
 
             auto new_origin = prev_origin;
 
             if (dist_to_segment < 0.05f) {
                 new_origins.push_back(new_origin);
-                if (debug_mode)
+                if (debug_pedantic)
                     puts("Convergence");
                 break;
             }
 
             if (rem_dist > rem_max) {
-                if (debug_mode)
+                if (debug_pedantic) {
                     puts("Not enough overlap");
-                if (debug_mode)
                     printf("rem_dist: %.2f rem_max: %.2f\n", rem_dist, rem_max);
-                seg->debug_color = {0.,0.,0.};
+                    seg->debug_color = {0.,0.,0.};
+                }
             }
 
             if (!skip_optim) {
                 if (segment_radius > dist_origin_to_prev) {
                     auto v = rem_extend - (segment_radius - dist_origin_to_prev);
                     equal_mp = dist_origin_to_prev - v;
-                    if (debug_mode) {
+                    if (debug_pedantic) {
                         seg->debug_color = {1.,0,0};
                         puts("Too close to origin");
                     }
                 } else
                 if (rem_dist < rem_extend && total_length > dist_origin_to_prev) {
                     equal_mp = dist_origin_to_prev - rem_extend;
-                    if (debug_mode) {
+                    if (debug_pedantic) {
                         seg->debug_color = {1.,1,1};
                         puts("Maintain center of gravity");
                     }
                 } else
                 if (rem_dist < rem_retract && total_length > dist_origin_to_prev) {
                     equal_mp = dist_origin_to_prev - rem_retract;
-                    if (debug_mode) {
+                    if (debug_pedantic) {
                         puts("Too much leftover length");
                         seg->debug_color = {1.,.5,.5};
                     }
                 } else
                 if (rem_dist < rem_ex2 && rem_dist >= rem_extend && total_length > dist_origin_to_prev) {
-                    if (debug_mode) {
+                    if (debug_pedantic) {
                         puts("Too much leftover length");
                         seg->debug_color = {0.,.5,.5};
                     }
@@ -2007,13 +1956,13 @@ struct kinematics_t {
                 }
 
                 if (rem_dist < rem_min) {
-                    if (debug_mode)
+                    if (debug_pedantic)
                         puts("Too much overlap");
                         seg->debug_color = {0.25,0.25,0.25};
                     rem_dist = rem_min;
                 } else
                 if (rem_dist > rem_max) {
-                    if (debug_mode)
+                    if (debug_pedantic)
                         puts("Not enough overlap");
                         seg->debug_color = {0,0,0.};
                 } else {
@@ -2021,7 +1970,7 @@ struct kinematics_t {
                 }
             }
 
-            if (debug_mode)
+            if (debug_pedantic)
                 printf("rem_dist: %.2f, rem_max: %.2f, equal_mp: %.2f, dist_origin_to_prev: %.2f, dist_to_segment: %.2f\n", rem_dist, rem_max, equal_mp, dist_origin_to_prev, dist_to_segment);
 
             auto mp_vec = mag * equal_mp;
@@ -2033,7 +1982,7 @@ struct kinematics_t {
             auto new_origin3d = glm::vec3(new_origin.x, new_origin.y, 0.0f);
             auto dist_new_prev = glm::distance<2, float>(new_origin, prev_origin);
 
-            if (debug_mode)
+            if (debug_pedantic)
                 printf("mp_vec <%.2f %.2f>, segment_radius: %.2f, rem_dist: %.2f, n: %.2f, o: %.2f, new_mag <%.2f,%.2f>, dist_new_prev: %.2f\n", mp_vec[0], mp_vec[1], segment_radius, rem_dist, n, o, new_mag[0], new_mag[1], dist_new_prev);
 
             if (calculation_failure)
@@ -2042,13 +1991,13 @@ struct kinematics_t {
             float tolerable_distance = 10.0f;
 
             if (abs(dist_new_prev - segment_radius) > tolerable_distance) {
-                if (debug_mode)
+                if (debug_pedantic)
                     puts("Distance to prev is too different");
                 calculation_failure = true;
             }
 
             if (remaining_segments.size() < 1 && glm::distance<2, float>(new_origin, target_pl2d) > tolerable_distance) {
-                if (debug_mode)
+                if (debug_pedantic)
                     puts("Distance to target is too far");
                 calculation_failure = true;
             }
@@ -2064,12 +2013,12 @@ struct kinematics_t {
         }
 
         if (calculation_failure) {
-            if (debug_mode)
+            if (debug_pedantic)
                 puts("Failed to calculate");
             return glfail;
         } else {
             if (new_origins.size() < 1) {
-                if (debug_mode)
+                if (debug_pedantic)
                     puts("Not enough origins");
                 return glfail;
             }
@@ -2099,7 +2048,7 @@ struct kinematics_t {
                     rot = glm::radians(deg);
                 }
                 
-                if (debug_mode)
+                if (debug_pedantic)
                     printf("servo: %i, rot: %.2f, deg: %.2f, prevrot: %.2f, calcmag[0]: %.2f, calcmag[1]: %.2f, cur[0]: %.2f, cur[1]: %.2f, prev[0]: %.2f, prev[1]: %.2f\n", servo->servo_num, rot, deg, prevrot, calcmag.x, calcmag.y, cur.x, cur.y, prev.x, prev.y);
 
                 
@@ -2111,24 +2060,17 @@ struct kinematics_t {
             }
         }
 
-        if (debug_mode)
+        if (debug_pedantic)
             printf("Initial rot: %.2f,%.2f,%.2f,%.2f,%.2f\n", rot_out[0], rot_out[1], rot_out[2], rot_out[3], rot_out[4]);
 
         rot_out[1] = serv_6;
 
-        if (debug_mode)
+        if (debug_pedantic)
             printf("End rot: %.2f,%.2f,%.2f,%.2f,%.2f\n", rot_out[0], rot_out[1], rot_out[2], rot_out[3], rot_out[4]);
         for (int i = 0; i < segments.size(); i++)
             segments[i]->rotation = rot_out[i] * 360.0f;
 
-        //userinput_kinematic = true;
-        
-        slider1->set_value(s1->get_clamped_rotation(), false);
-        slider2->set_value(s2->get_clamped_rotation(), false);
-        slider3->set_value(s3->get_clamped_rotation(), false);
-        slider4->set_value(s4->get_clamped_rotation(), false);
-        slider5->set_value(s5->get_clamped_rotation(), false);
-        slider6->set_value(s6->get_clamped_rotation(), false);
+        set_sliders_from_segments();
 
         return glsuccess;
     }
@@ -2451,7 +2393,7 @@ struct joystick_t {
             }
 
             if (kv.second.axis_count != 6) {
-                if (first_run)
+                if (first_run && debug_mode)
                     fprintf(stderr, "6 axes joystick device required, device %i \"%s\" \"%s\" \"%s\"\n", jid, jd.gp_name.c_str(), jd.name.c_str(), jd.guid.c_str());
                 continue;
             }
@@ -2524,13 +2466,16 @@ struct robot_interface_t {
 
             using _dur = std::chrono::duration<float>;
             auto t = std::chrono::duration_cast<_dur>(clk::now() - last_cmd);
-            //T md = (t.count() / 1000.0f) * deg_per_second;
+
             T md = t.count() * deg_per_second;
             T dir = d > 0 ? 1 : -1;
             T intp = dir * md;
 
-            //if (debug)
-            //    fprintf(stderr, "gip id:%i t:%li d:%i md:%i dir:%i pos:%i intp:%i intp + real_pos:%i\n", id, t.count(), d, md, dir, pos, intp, intp + real_pos);
+            if (debug && debug_pedantic) {
+                if (std::is_same_v<int, T>) {
+                    fprintf(stderr, "gip id:%i t:%f d:%i md:%i dir:%i pos:%i intp:%i intp + real_pos:%i\n", (int)id, t.count(), (int)d, (int)md, (int)dir, (int)pos, (int)intp, (int)(intp + real_pos));
+                }
+            }
 
             if (abs(intp) > abs(d))
                 return pos;
@@ -2555,7 +2500,8 @@ struct robot_interface_t {
         if (!handle && !virtual_output)
             return;
 
-        fprintf(stderr, "robot_target: %lf %lf %lf\n", robot_target[0], robot_target[1], robot_target[2]);
+        if (debug_pedantic)
+            fprintf(stderr, "robot_target: %lf %lf %lf\n", robot_target[0], robot_target[1], robot_target[2]);
 
         assert(robot_servos.size() < 7 && "Need servos to update\n");
 
@@ -2611,7 +2557,7 @@ struct robot_interface_t {
             //rs.get_interpolated_pos(true);
 
             int time_to_complete = (fabs(dist) / rs.deg_per_second) * 1000;
-            if (debug_mode)
+            if (debug_pedantic)
                 fprintf(stderr, "Send constant speed s%i (%i - (%i %.2f) = %i, %i ms)\n", rs.id, intrp, targeti, targetf, dist, time_to_complete);
             rs.set_pos(targeti);
             set_servos({{rs.id, targeti}}, time_to_complete);
@@ -2638,7 +2584,8 @@ struct robot_interface_t {
             } else
             if (abs(dist) < mv / 2 && abs(jerk) < mv / 4) {
                 intrp = targeti;
-                fprintf(stderr, "Force set targeti\n");
+                if (debug_pedantic)
+                    fprintf(stderr, "Force set targeti\n");
             }
 
 
@@ -2646,7 +2593,7 @@ struct robot_interface_t {
             rs.pos = targeti;
             rs.real_pos = intrp;
             
-            //if (debug_mode)
+            if (debug_pedantic)
                 fprintf(stderr, "Send constant time s%i (%i/initialp -> %i/rintrp (jerk comp %i/intrp)) (%i/mvdist) (%i/targeti %.2f/targetf : %.2f/initialpf) = %i/dist (%i r_period/ms %i mv/intpersec) accel %.2f jerk %.2f\n", rs.id, initialp, rintrp, intrp, mvdist, targeti, targetf, initialpf, dist, r_period, mv, accel, jerk);
             
             cmds.push_back({rs.id, intrp});
@@ -2700,7 +2647,8 @@ struct robot_interface_t {
         unsigned char ret[100];
         int count = hid_read_timeout(handle, &ret[0], 100, 2000);
         if (count < 6) {
-            fprintf(stderr, "Failed to read any bytes\n%s\n", get_hid_error().c_str());
+            if (debug_mode)
+                fprintf(stderr, "Failed to read any bytes\n%s\n", get_hid_error().c_str());
             return;
         }
 
@@ -2715,7 +2663,8 @@ struct robot_interface_t {
             if (set_pos)
                 robot_servos[id].pos = (unsigned short)(pos);
             robot_servos[id].last_cmd = now_time;
-            fprintf(stderr, "s%i r%i p%i\n", id, robot_servos[id].real_pos, robot_servos[id].pos);
+            if (debug_pedantic)
+                fprintf(stderr, "s%i r%i p%i\n", id, robot_servos[id].real_pos, robot_servos[id].pos);
         }
     }
 
@@ -2731,7 +2680,7 @@ struct robot_interface_t {
     void set_servos(const std::vector<std::pair<int,int>> &poses, const int time = 1000) {
         if (!handle)
             return;
-        return;
+
         const int count = poses.size() * 3 + 7;
         assert(poses.size() > 0 && "No poses");
         assert(poses.size() < 255 && count < 255 && "Should not be that big\n");
@@ -2885,17 +2834,21 @@ inline float segment_t::get_rotation() {
     return rotation;
 }
 
-void servo_slider_update(ui_slider_t* ui, ui_slider_t::ui_slider_v value) {
+void set_segments_from_sliders() {
     for (int i = 0; i < servo_sliders.size() && i < servo_segments.size(); i++)
         servo_segments[i]->rotation = servo_sliders[i]->value;
 
     robot_target = s3->get_origin() + s3->get_segment_vector();
 }
 
+void servo_slider_update(ui_slider_t* ui, ui_slider_t::ui_slider_v value) {
+    set_segments_from_sliders();
+}
+
 void update_whatever(ui_slider_t* ui, ui_slider_t::ui_slider_v value) {
     for (int i = 0; i < slider_whatever.size(); i++) {
         float value = slider_whatever.at(i)->value;
-        if (debug_mode)
+        if (debug_pedantic)
             printf("%.4f%c",value, i == slider_whatever.size()-1?'\n':',');
 
         auto &gbl = global_text_parameters;
@@ -2923,13 +2876,21 @@ void update_whatever(ui_slider_t* ui, ui_slider_t::ui_slider_v value) {
     ui_servo_sliders->reset();
 }
 
+void set_sliders_from_segments() {
+    for (int i = 0; i < servo_sliders.size() && i < servo_segments.size(); i++)
+        servo_sliders[i]->set_value(servo_segments[i]->get_clamped_rotation(), false);
+}
+
 void set_segments_from_robot() {
     for (int i = 0; i < servo_sliders.size() && i < servo_segments.size(); i++) {
         auto *sg = servo_segments[i];
         auto *ui = servo_sliders[i];
-        sg->rotation = robot_interface->robot_servos[sg->servo_num].get_interpolated_pos<float>();
+        auto &rs = robot_interface->robot_servos[sg->servo_num];
+        float intrp = rs.get_interpolated_pos<float>();
+        sg->rotation = rs.get_deg<float>(intrp);
         ui->set_value(sg->get_clamped_rotation(), false);
-        fprintf(stderr, "%i -> %s (%f -> %f)\n", sg->servo_num, ui->title_cached.c_str(), sg->rotation, sg->get_clamped_rotation());
+        if (debug_pedantic)
+            fprintf(stderr, "%i -> %s (%f -> %f)\n", sg->servo_num, ui->title_cached.c_str(), sg->rotation, sg->get_clamped_rotation());
     }
 
     robot_target = s3->get_origin() + s3->get_segment_vector();
@@ -3114,24 +3075,30 @@ int init() {
         slider_whatever.push_back(debugInfo->add_child(new ui_slider_t(window, sliderPos + (sliderAdd * glm::vec4(float(i % stepover))), defaults[i]-2., defaults[i]+2., defaults[i], "", false, update_whatever, false, extra_slider_hidden)));
     }
 
+    auto toggle_pos = glm::vec4{-.975,.925,.05,.05};
+    auto toggle_add = glm::vec4{.110, 0, 0, 0};
+
     debugInfo->hidden = !debug_mode;
-    debugToggle = uiHandler->add_child(new ui_toggle_t(window, {-.975,.925,.05,.05}, "Debug", debug_mode, [](ui_toggle_t* ui, bool state){
+    debugToggle = uiHandler->add_child(new ui_toggle_t(window, toggle_pos, "Debug", debug_mode, [](ui_toggle_t* ui, bool state){
         debug_mode = state;
         debugInfo->hidden = !debug_mode;
     }));
-    resetToggle = debugInfo->add_child(new ui_toggle_t(window, {-.865, .925,.05,.05}, "Reset", false, [](ui_toggle_t *ui, bool state) {
+    resetToggle = debugInfo->add_child(new ui_toggle_t(window, toggle_pos += toggle_add, "Reset", false, [](ui_toggle_t *ui, bool state) {
         if (state)
             uiHandler->reset();
         reset();
     }));
-    interpolatedToggle = debugInfo->add_child(new ui_toggle_t(window, {-.755, .925, .05, .05}, "Intrp", model_interpolation, [](ui_toggle_t *ui, bool state){
+    interpolatedToggle = debugInfo->add_child(new ui_toggle_t(window, toggle_pos += toggle_add, "Intrp", model_interpolation, [](ui_toggle_t *ui, bool state){
         model_interpolation = state;
     }));
-    resetConnectionToggle = debugInfo->add_child(new ui_toggle_t(window, {-.645, .925, .05, .05}, "Conn", false, [](ui_toggle_t *ui, bool state) {
+    resetConnectionToggle = debugInfo->add_child(new ui_toggle_t(window, toggle_pos += toggle_add, "Conn", false, [](ui_toggle_t *ui, bool state) {
         if (state) {
             robot_interface->reset(1155, 22352);
             resetConnectionToggle->set_state(false);
         }
+    }));
+    pedanticToggle = debugInfo->add_child(new ui_toggle_t(window, toggle_pos += toggle_add, "Verb", debug_pedantic, [](ui_toggle_t* ui, bool state){
+        debug_pedantic = state;
     }));
 
     sBase = new segment_t(nullptr, z_axis, z_axis, 46.19, 7);
@@ -3187,7 +3154,8 @@ int load() {
     joysticks->query_joysticks();
     robot_interface->open(1155, 22352);
     set_segments_from_robot();
-    fprintf(stderr, "robot_target: %lf %lf %lf\n", robot_target[0], robot_target[1], robot_target[2]);
+    if (debug_pedantic)
+        fprintf(stderr, "robot_target: %lf %lf %lf\n", robot_target[0], robot_target[1], robot_target[2]);
 
     return glsuccess;
 }

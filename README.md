@@ -43,6 +43,8 @@ g++ main.cpp -lGL -lglfw -lhidapi-libusb -g -o main.out
 ./main.out
 ```
 
+Note, if `<format>` is not found, you may not have g++13. This was the case on my Debian 12/bookworm laptop. To fix this, the best way other than adding an external repo or 3rd party .deb file is to compile gcc/g++ from source see https://stackoverflow.com/questions/78306968/installing-gcc13-and-g13-in-debian-bookworm-rust-docker-image for the example commands to achieve this. You will also need to add -static-libstdc++ and possibly compile glfw3 3.4 for joystick support.
+
 ### Optional for USB
 
 ```

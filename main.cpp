@@ -17,6 +17,7 @@
 
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/string_cast.hpp>
+#include <glm/gtx/norm.hpp>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -66,12 +67,12 @@ shader_text_t *textProgram;
 shader_materials_t *mainProgram;
 material_t *robotMaterial;
 camera_t *camera;
-segment_t *sBase, *s6, *s5, *s4, *s3;
+segment_t *sBase, *s6, *s5, *s4, *s3, *s2, *s1;
 std::vector<segment_t*> segments;
 debug_object_t *debug_objects;
 ui_text_t *debugInfo;
 ui_toggle_t *debugToggle, *interpolatedToggle, *resetToggle, *resetConnectionToggle;
-ui_slider_t *slider6, *slider5, *slider4, *slider3, *slider_ambient, *slider_diffuse, *slider_specular, *slider_shininess;
+ui_slider_t *slider6, *slider5, *slider4, *slider3, *slider2, *slider1, *slider_ambient, *slider_diffuse, *slider_specular, *slider_shininess;
 std::vector<ui_slider_t*> slider_whatever;
 ui_element_t *uiHandler, *ui_servo_sliders;
 kinematics_t *kinematics;
@@ -823,6 +824,15 @@ struct segment_t : public mesh_t {
         const float r = max - min;
         while (ret < min) ret += r;
         while (ret > max) ret -= r;
+        return ret;
+    }
+
+    static inline constexpr float clip(const float &v, const float &min, const float &max) {
+        float ret = v;
+        if (ret < min)
+            ret = min;
+        if (ret > max)
+            ret = max;
         return ret;
     }
 
@@ -2110,6 +2120,8 @@ struct kinematics_t {
 
         //userinput_kinematic = true;
         
+        slider1->set_value(s1->get_clamped_rotation(), false);
+        slider2->set_value(s2->get_clamped_rotation(), false);
         slider3->set_value(s3->get_clamped_rotation(), false);
         slider4->set_value(s4->get_clamped_rotation(), false);
         slider5->set_value(s5->get_clamped_rotation(), false);
@@ -2270,8 +2282,7 @@ struct joystick_t {
                 vec3_d jd(-axes[1], -axes[3], axes[0]);
                 //jd *= 0.25f;
                 vec3_d ndz(0.0);
-                if (!set_v3(ndz, jd, tolerance))
-                    ;//continue;
+                set_v3(ndz, jd, tolerance);
 
                 ndz = scale_axes(ndz);
                 ndz *= 0.25;
@@ -2280,17 +2291,29 @@ struct joystick_t {
                     (cos(cyw) * ndz.x) - (sin(cyw) * ndz.z),
                     ndz.y,
                     (sin(cyw) * ndz.x) + (cos(cyw) * ndz.z)
-                );
-                robot_target += vvv * deltaTime;
-                //std::setprecision(15);
-                printf("%lf %lf %lf %lf %lf %lf %lf %lf\n",
-                    robot_target[0], robot_target[1], robot_target[2],
-                    vvv[0], vvv[1], vvv[2],
-                    deltaTime, cyw);
-                kinematics->solve_inverse(robot_target);
+                ) * deltaTime;
+                robot_target += vvv;
+
+                if (glm::length2(vvv) > 0)
+                    kinematics->solve_inverse(robot_target);
+
+                vec3_d pd(axes[2] * 1.5, (axes[4] + 1) / 2, (axes[5] + 1) / 2), ndd(0.0);
+                set_v3(ndd, pd, tolerance);
+                ndd = scale_axes(ndd) * deltaTime;
+
+                if (glm::length2(ndd) > 0) {
+                    s2->rotation += ndd.x * deltaTime;
+                    s1->rotation -= ndd.y * deltaTime;
+                    s1->rotation += ndd.z * deltaTime;
+
+                    s2->rotation = s2->clip(s2->rotation, -120, 120); // because we can't check robot_interface unless refactor, works for now
+                    s1->rotation = s1->clip(s1->rotation, -50, 60);
+                }
             }
         }
     }
+
+    void rest_robot();
 
     void query_robot();
 
@@ -2301,7 +2324,7 @@ struct joystick_t {
             auto dz = jd.deadzones.data();
 
             if (jd.get_button(GLFW_GAMEPAD_BUTTON_GUIDE))
-                memcpy(dz, &gp.axes, 4 * sizeof dz[0]);
+                memcpy(dz, &gp.axes, jd.axis_count * sizeof dz[0]);
 
             if (jd.get_button(GLFW_GAMEPAD_BUTTON_LEFT_BUMPER) + 
                 jd.get_button(GLFW_GAMEPAD_BUTTON_RIGHT_BUMPER) == 3)
@@ -2313,6 +2336,10 @@ struct joystick_t {
             if (jd.get_button(GLFW_GAMEPAD_BUTTON_START) == GLFW_PRESS)
                 ::reset();
 
+            if (!camera_move && jd.get_button(GLFW_GAMEPAD_BUTTON_A) == GLFW_PRESS) {
+                rest_robot();
+            }
+
             if (jd.get_button(GLFW_GAMEPAD_BUTTON_Y) == GLFW_PRESS) {
                 debug_mode = !debug_mode;
                 debugInfo->hidden = !debug_mode;
@@ -2323,7 +2350,7 @@ struct joystick_t {
             if (jd.get_button(GLFW_GAMEPAD_BUTTON_X) == GLFW_PRESS)
                 query_robot();
 
-            for (int i = 0; i < 4; i++)
+            for (int i = 0; i < jd.axis_count; i++)
                 gp.axes[i] -= dz[i];
         }
     }
@@ -2461,17 +2488,20 @@ struct robot_interface_t {
         int min_time = 20;
         int min_diff = 1;
 
-        template<typename T = int>
-        float get_deg(T v) {
-            return float(v - home) * int_per_deg;
+        template<typename T = int, typename RET = float>
+        RET get_deg(T v) {
+            return RET(v - home) * int_per_deg;
         }
 
-        int get_int(float v) {
-            return (v * (1.0 / int_per_deg)) + home;
+        template<typename T = float, typename RET = int>
+        RET get_int(T v) {
+            return RET(v * (1.0 / int_per_deg)) + home;
         }
 
-        int get_elapsed_time() {
-            return (int)std::chrono::duration_cast<dur>(clk::now() - last_cmd).count();
+        template<typename RET = int>
+        RET get_elapsed_time() {
+            using _dur = std::chrono::duration<RET>;
+            return (RET)std::chrono::duration_cast<_dur>(clk::now() - last_cmd).count();
         }
 
         template<typename T = int>
@@ -2514,7 +2544,7 @@ struct robot_interface_t {
         if (!handle && !virtual_output)
             return;
 
-        std::vector servos = { s3, s4, s5, s6 };
+        std::vector servos = { s1, s2, s3, s4, s5, s6 };
 
         assert(robot_servos.size() < 7 && "Need servos to update\n");
 
@@ -2579,7 +2609,7 @@ struct robot_interface_t {
             {
             rs.last_cmd = now_batch;
 
-            if (abs(dist) < rs.min_diff) {
+            if (abs(dist) < rs.min_diff && abs(dist) < 1) {
                 rs.pos = targeti;
                 rs.real_pos = targeti;
                 continue;
@@ -2591,16 +2621,21 @@ struct robot_interface_t {
             float jerk = (mvdist * (float)mv) / (float)mv;
             int rintrp = intrp;
 
-            if (fabs(jerk) > mv / 2 && abs(mvdist) > 0) {
+            if (abs(jerk) > mv / 2 && abs(mvdist) > 0) {
                 intrp += (mvdist / 2); //limit jerk; to-do velocity
+            } else
+            if (abs(dist) < mv / 2 && abs(jerk) < mv / 4) {
+                intrp = targeti;
+                fprintf(stderr, "Force set targeti\n");
             }
+
 
             //rs.set_pos(targeti);
             rs.pos = targeti;
             rs.real_pos = intrp;
             
-            if (debug_mode)
-                fprintf(stderr, "Send constant time s%i (%i -> %i (jerk comp %i)) (mvdist %i) (%i %.2f) = %i (%i ms %i intpersec) accel %.2f jerk %.2f\n", rs.id, initialp, rintrp, intrp, mvdist, targeti, targetf, dist, r_period, mv, accel, jerk);
+            //if (debug_mode)
+                fprintf(stderr, "Send constant time s%i (%i/initialp -> %i/rintrp (jerk comp %i/intrp)) (%i/mvdist) (%i/targeti %.2f/targetf) = %i/dist (%i r_period/ms %i mv/intpersec) accel %.2f jerk %.2f\n", rs.id, initialp, rintrp, intrp, mvdist, targeti, targetf, dist, r_period, mv, accel, jerk);
             
             cmds.push_back({rs.id, intrp});
             }
@@ -2729,15 +2764,16 @@ struct robot_interface_t {
         int dhome = 500;
         int dpos = 500;
         int drp = 500;
-        float dconv = 90.0f / 375.0f;
+        //float dconv = 90.0f / 375.0f;
+        float dconv = 240.0f / 1000.0f; //from spec
         float dps = 500.0f;
         robot_servo servos[6] = {
             { 1, 200, 850, dhome, dpos, drp, 641.0f, dconv }, // gripper
-            { 2, 50, 850, dhome, dpos, drp, 700.0f, dconv }, // wrist
-            { 3, 100, 900, dhome, dpos, drp, 850.0f, dconv }, // 3
-            { 4, 1, 1042, 502, dpos, drp, 700.0f, -dconv }, // 4 (inverted)
+            { 2, 0, 925, dhome, dpos, drp, 1100.0f, dconv }, // wrist
+            { 3, 31, 1000, dhome, dpos, drp, 850.0f, dconv }, // 3
+            { 4, 0, 1042, 502, dpos, drp, 700.0f, -dconv }, // 4 (inverted)
             { 5, 148, 882, 505, dpos, drp, 350.0f, dconv }, // 5
-            { 6, 1, 1146, 482, dpos, drp, 700.0f, dconv }  // base
+            { 6, 0, 1146, 482, dpos, drp, 700.0f, dconv }  // base
         };
 
         for (int i = 0; i < 6; i++)
@@ -2821,6 +2857,10 @@ void joystick_t::query_robot() {
     fputs("\n", stderr);
 }
 
+void joystick_t::rest_robot() {
+    robot_interface->servos_off();
+}
+
 inline float segment_t::get_rotation() {
     if (model_interpolation) {
         auto &rb = robot_interface->robot_servos;
@@ -2839,6 +2879,8 @@ void servo_slider_update(ui_slider_t* ui, ui_slider_t::ui_slider_v value) {
     s5->rotation = slider5->value;
     s4->rotation = slider4->value;
     s3->rotation = slider3->value;
+    s2->rotation = slider2->value;
+    s1->rotation = slider1->value;
     robot_target = s3->get_origin() + s3->get_segment_vector();
 }
 
@@ -2882,12 +2924,14 @@ std::string segment_debug_info() {
         int cv = seg->get_clamped_rotation();
         if (rs.contains(seg->servo_num)) {
             auto &rv = rs[seg->servo_num];
-            return std::format("  {}: {}  {}\n", seg->servo_num, cv, rv.get_int(cv));
+            return std::format("  {}: {}  {}\n", seg->servo_num, cv, rv.get_int<float>(cv));
         }
         return std::format("  {}: {}\n", seg->servo_num, cv);
     };
 
-    return ret + get_segment(s3) +
+    return ret + get_segment(s1) +
+                 get_segment(s2) +
+                 get_segment(s3) +
                  get_segment(s4) +
                  get_segment(s5) +
                  get_segment(s6);
@@ -3013,16 +3057,19 @@ int init() {
     glm::vec4 sliderAdd = {0.0,0.2,0,0};
     glm::vec2 sMM = {-180, 180.};
     
-    slider6 = ui_servo_sliders->add_child(new ui_slider_t(window, sliderPos, sMM.x, sMM.y, 0., "Servo 6", true, servo_slider_update));
-    slider5 = ui_servo_sliders->add_child(new ui_slider_t(window, sliderPos + (sliderAdd * glm::vec4(1.)), sMM.x, sMM.y, 0., "Servo 5", true, servo_slider_update));
-    slider4 = ui_servo_sliders->add_child(new ui_slider_t(window, sliderPos + (sliderAdd * glm::vec4(2.)), sMM.x, sMM.y, 0., "Servo 4", true, servo_slider_update));
-    slider3 = ui_servo_sliders->add_child(new ui_slider_t(window, sliderPos + (sliderAdd * glm::vec4(3.)), sMM.x, sMM.y, 0., "Servo 3", true, servo_slider_update));
+    int sl = 0;
+    slider6 = ui_servo_sliders->add_child(new ui_slider_t(window, sliderPos, sMM.x, sMM.y, sl++, "Servo 6", true, servo_slider_update));
+    slider5 = ui_servo_sliders->add_child(new ui_slider_t(window, sliderPos + (sliderAdd * glm::vec4(sl++)), sMM.x, sMM.y, 0., "Servo 5", true, servo_slider_update));
+    slider4 = ui_servo_sliders->add_child(new ui_slider_t(window, sliderPos + (sliderAdd * glm::vec4(sl++)), sMM.x, sMM.y, 0., "Servo 4", true, servo_slider_update));
+    slider3 = ui_servo_sliders->add_child(new ui_slider_t(window, sliderPos + (sliderAdd * glm::vec4(sl++)), sMM.x, sMM.y, 0., "Servo 3", true, servo_slider_update));
+    slider2 = ui_servo_sliders->add_child(new ui_slider_t(window, sliderPos + (sliderAdd * glm::vec4(sl++)), sMM.x, sMM.y, 0., "Servo 2", true, servo_slider_update));
+    slider1 = ui_servo_sliders->add_child(new ui_slider_t(window, sliderPos + (sliderAdd * glm::vec4(sl++)), sMM.x, sMM.y, 0., "Servo 1", true, servo_slider_update));
     //debugInfo = new ui_text_t(window, {0.0,0.0,1.,1.}, "Hello world 2!");
     
-    slider_ambient = debugInfo->add_child(new ui_slider_t(window, sliderPos + (sliderAdd * glm::vec4(4.)), 0., 6., 4., "Ambient Light", false));
-    slider_diffuse = debugInfo->add_child(new ui_slider_t(window, sliderPos + (sliderAdd * glm::vec4(5.)), -2., 2., 0.7, "Diffuse Light", false));
-    slider_specular = debugInfo->add_child(new ui_slider_t(window, sliderPos + (sliderAdd * glm::vec4(6.)), -2., 2., 0., "Specular Light", false));
-    slider_shininess = debugInfo->add_child(new ui_slider_t(window, sliderPos + (sliderAdd * glm::vec4(7.)), -2., 2., 0.5, "Shininess", false));
+    slider_ambient = debugInfo->add_child(new ui_slider_t(window, sliderPos + (sliderAdd * glm::vec4(sl++)), 0., 6., 4., "Ambient Light", false));
+    slider_diffuse = debugInfo->add_child(new ui_slider_t(window, sliderPos + (sliderAdd * glm::vec4(sl++)), -2., 2., 0.7, "Diffuse Light", false));
+    slider_specular = debugInfo->add_child(new ui_slider_t(window, sliderPos + (sliderAdd * glm::vec4(sl++)), -2., 2., 0., "Specular Light", false));
+    slider_shininess = debugInfo->add_child(new ui_slider_t(window, sliderPos + (sliderAdd * glm::vec4(sl++)), -2., 2., 0.5, "Shininess", false));
 
     sliderPos = glm::vec4{-0.95,-.2,0,0} + glm::vec4{0,0,.25,0.1};
     sliderAdd = {0,.105,0,0};
@@ -3069,9 +3116,11 @@ int init() {
 
     sBase = new segment_t(nullptr, z_axis, z_axis, 46.19, 7);
     s6 = new segment_t(sBase, z_axis, z_axis, 35.98, 6);
-    s5 = new segment_t(s6, y_axis, z_axis, 96.0, 5);
+    s5 = new segment_t(s6, y_axis, z_axis, 100.0, 5);
     s4 = new segment_t(s5, y_axis, z_axis, 96.0, 4);
     s3 = new segment_t(s4, y_axis, z_axis, 150.0, 3);
+    s2 = new segment_t(nullptr, z_axis, z_axis, 0, 2);
+    s1 = new segment_t(nullptr, z_axis, z_axis, 0, 1);
 
     segments = std::vector<segment_t*>({sBase, s6, s5, s4, s3});
     kinematics = new kinematics_t();
@@ -3089,6 +3138,8 @@ void reset() {
     camera->pitch = 0.001;
     for (auto &seg : segments)
         seg->rotation = 0;
+    s1->rotation = 0;
+    s2->rotation = 0;
     robot_target = s3->get_segment_vector() + s3->get_origin();
 }
 
@@ -3248,6 +3299,15 @@ void handle_keyboard(GLFWwindow* window, float deltaTime) {
         x_press = true;
     } else {
         x_press = false;
+    }
+
+    static bool b_press = false;
+    if (glfwGetKey(window, GLFW_KEY_B) == GLFW_PRESS) {
+        if (!b_press)
+            robot_interface->servos_off();
+        b_press = true;
+    } else {
+        b_press = false;
     }
 
     camera->keyboard(window, deltaTime);

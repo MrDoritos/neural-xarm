@@ -37,25 +37,33 @@ void main() {
     mat4 model = mat4(-norm);
     mat3 mv_norm = mat3(transpose(inverse(model)));
 
-    vec4 l_pos = vec4(0,20,0,1);
-    //vec3 l_dir = normalize(l_pos);
+    vec4 l_pos = vec4(20,30,0,1);
+    vec3 l_norm = normalize(l_pos.xyz);
     vec3 v_normal = normalize(normal);
     vec3 w_normal = normalize(normal * mv_norm);
     vec4 w_4 = vec4(worldPos.xyz, 1.0);
 
     vec3 normalMix = normalize(normal) * norm;
-    vec3 view = normalize(eyePos - worldPos);
+    vec3 wv_n = normalize(eyePos - worldPos);
+    vec3 view = normalize(wv_n * mv_norm);
 
     float approach = abs(dot(view, normalMix));
-    vec3 v_to_l = vec3(l_pos - model * w_4);
-    vec3 l_dir = normalize(v_to_l);
-    float dotSky = clamp(dot(w_normal, l_dir)*0.1,0.0,1.0);
+    vec3 v_to_l = vec3(model * w_4 - l_pos);
+    vec3 l_dir = normalize(l_pos.xyz - worldPos);
+    //float dotSky = clamp(dot(w_normal, l_dir)*0.1,0.0,1.0);
+    //float dotSky = dot(l_norm, wv_n) * 5;
+    //float dotwl = dot(l_norm, normalize(worldPos));
+    //float dotwl = dot(l_norm, v_normal);
+    //float dotSky = pow(clamp(dotwl, 0.0, 1.0)*5,5);
+    //float dotSky = dot(view, w_normal);
+    //float dotSky = max(dot(normalize(normal * mv_norm), normalize(l_pos.xyz - worldPos)), 0.0);
+    float dotSky = max(dot(l_dir, normalize(normal * mv_norm)), 0.0);
 
     vec3 diffuseColor = texture(material.diffuse, texCoord).rgb;
     vec3 specularColor = texture(material.specular, texCoord).rgb;    
     
-    vec3 sDiffuse = light.diffuse * diffuseColor;
-    vec3 sAmbient = light.ambient * diffuseColor * dotSky;// * vec3(material.shininess);
+    vec3 sDiffuse = light.diffuse * diffuseColor * dotSky;
+    vec3 sAmbient = light.ambient * diffuseColor;// * vec3(material.shininess);
     vec3 sSpecular = light.specular * specularColor;
 
     vec3 sMix = sDiffuse + sAmbient + sSpecular;

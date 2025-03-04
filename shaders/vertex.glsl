@@ -17,8 +17,11 @@ void main() {
     worldPos = (model * vec4(aPosition, 1.0)).xyz;
     //normal = normalize((norm * vec3(0.5)) * (aNormal * vec3(0.5)));
     //normal = normalize((norm * vec3(2.2)) * (aNormal * vec3(0.2)));
-    //normal = normalize(vec3(vec4(aNormal,0.0) * model));
+    //normal = normalize(vec3(vec4(aNormal,0.0) * view));
     //normal = normalize(aNormal * norm);
-    normal = aNormal;
+    //normal = (vec4(aNormal, 1.) * model).xyz;
+    //normal = aNormal;
+    normal = (transpose(inverse(model)) * vec4(aNormal, 1.)).xyz;
+    //normal = normalize((mvp * vec4(aNormal, 1.0)).xyz);
     texCoord = vec2(aTexCoord.x, -aTexCoord.y);
 }

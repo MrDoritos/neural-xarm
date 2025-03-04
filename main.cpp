@@ -69,11 +69,13 @@ material_t *robotMaterial;
 camera_t *camera;
 segment_t *sBase, *s6, *s5, *s4, *s3, *s2, *s1;
 std::vector<segment_t*> segments;
+std::vector<segment_t*> servo_segments;
 debug_object_t *debug_objects;
 ui_text_t *debugInfo;
 ui_toggle_t *debugToggle, *interpolatedToggle, *resetToggle, *resetConnectionToggle;
 ui_slider_t *slider6, *slider5, *slider4, *slider3, *slider2, *slider1, *slider_ambient, *slider_diffuse, *slider_specular, *slider_shininess;
 std::vector<ui_slider_t*> slider_whatever;
+std::vector<ui_slider_t*> servo_sliders;
 ui_element_t *uiHandler, *ui_servo_sliders;
 kinematics_t *kinematics;
 //glm::vec3 robot_target;
@@ -92,6 +94,7 @@ void reset();
 void destroy();
 void hint_exit();
 void safe_exit(int errcode = 0);
+void set_segments_from_robot();
 
 using hrc = std::chrono::high_resolution_clock;
 using tp = std::chrono::time_point<hrc>;
@@ -2155,6 +2158,35 @@ struct joystick_t {
             return 0;
         }
 
+        void set_deadzones() {
+            assert(deadzones.size() == axis_count && "Deadzone array length and axis_count\n");
+            memcpy(deadzones.data(), &state.axes, axis_count * sizeof deadzones[0]);
+        }
+
+        void update() {
+            if (!glfwGetGamepadState(jid, &state)) {
+                const float *axes = glfwGetJoystickAxes(jid, &axis_count);
+                const unsigned char *buttons = glfwGetJoystickButtons(jid, &button_count);
+
+                if (axis_count < 6 || axis_count > 6) {
+                    // redundant message, axis/button count available in the device object
+                    //std::string msg = std::format("{} axes required (found {})", 6, jd.axis_count);
+                    //jd.gp_name = msg;
+                    if (axis_count < 6)
+                        return;
+                    // copy count based off GLFWgamepadstate
+                    //jd.axis_count = 6;
+                }
+
+                memcpy(&state.axes, axes, sizeof state.axes);
+                memcpy(&state.buttons, buttons, sizeof state.buttons);
+
+                // remap for the controller im using
+                std::swap(state.axes[2], state.axes[4]);
+                std::swap(state.axes[3], state.axes[2]);
+            }
+        }
+
         static std::pair<std::string, joystick_device_t> get_device(int jid) {
             std::pair<std::string, joystick_device_t> kv;
 
@@ -2324,7 +2356,7 @@ struct joystick_t {
             auto dz = jd.deadzones.data();
 
             if (jd.get_button(GLFW_GAMEPAD_BUTTON_GUIDE))
-                memcpy(dz, &gp.axes, jd.axis_count * sizeof dz[0]);
+                jd.set_deadzones();
 
             if (jd.get_button(GLFW_GAMEPAD_BUTTON_LEFT_BUMPER) + 
                 jd.get_button(GLFW_GAMEPAD_BUTTON_RIGHT_BUMPER) == 3)
@@ -2356,31 +2388,8 @@ struct joystick_t {
     }
 
     void update(double deltaTime) {
-        for (auto &joy : joysticks) {
-            auto &jd = joy.second;
-            GLFWgamepadstate *st = &jd.state;
-            if (!glfwGetGamepadState(jd.jid, st)) {
-                const float *axes = glfwGetJoystickAxes(jd.jid, &jd.axis_count);
-                const unsigned char *buttons = glfwGetJoystickButtons(jd.jid, &jd.button_count);
-
-                if (jd.axis_count < 6 || jd.axis_count > 6) {
-                    // redundant message, axis/button count available in the device object
-                    //std::string msg = std::format("{} axes required (found {})", 6, jd.axis_count);
-                    //jd.gp_name = msg;
-                    if (jd.axis_count < 6)
-                        continue;
-                    // copy count based off GLFWgamepadstate
-                    //jd.axis_count = 6;
-                }
-
-                memcpy(&st->axes, axes, sizeof st->axes);
-                memcpy(&st->buttons, buttons, sizeof st->buttons);
-
-                // remap for the controller im using
-                std::swap(st->axes[2], st->axes[4]);
-                std::swap(st->axes[3], st->axes[2]);
-            }
-        }
+        for (auto &joy : joysticks)
+            joy.second.update();
 
         process_input(deltaTime);
         set_robot(deltaTime);
@@ -2448,6 +2457,8 @@ struct joystick_t {
             }
 
             fprintf(stderr, "Add joystick %i \"%s\" \"%s\" \"%s\"\n", jid, jd.gp_name.c_str(), jd.name.c_str(), jd.guid.c_str());
+            jd.update();
+            jd.set_deadzones();
             joys.insert(kv);
         }
 
@@ -2544,7 +2555,7 @@ struct robot_interface_t {
         if (!handle && !virtual_output)
             return;
 
-        std::vector servos = { s1, s2, s3, s4, s5, s6 };
+        fprintf(stderr, "robot_target: %lf %lf %lf\n", robot_target[0], robot_target[1], robot_target[2]);
 
         assert(robot_servos.size() < 7 && "Need servos to update\n");
 
@@ -2564,7 +2575,7 @@ struct robot_interface_t {
         if (!constant_speed && r_period > m_period)
             r_period = m_period;
 
-        for (auto *sv : servos) {
+        for (auto *sv : servo_segments) {
             auto &rs = robot_servos[sv->servo_num];
 
             float targetf = sv->get_clamped_rotation();
@@ -2580,6 +2591,7 @@ struct robot_interface_t {
             }
 
             int initialp = rs.real_pos;
+            float initialpf = rs.get_deg<int, float>(initialp);
             int intrp = rs.get_interpolated_pos();
             int dist = targeti - intrp;
 
@@ -2635,7 +2647,7 @@ struct robot_interface_t {
             rs.real_pos = intrp;
             
             //if (debug_mode)
-                fprintf(stderr, "Send constant time s%i (%i/initialp -> %i/rintrp (jerk comp %i/intrp)) (%i/mvdist) (%i/targeti %.2f/targetf) = %i/dist (%i r_period/ms %i mv/intpersec) accel %.2f jerk %.2f\n", rs.id, initialp, rintrp, intrp, mvdist, targeti, targetf, dist, r_period, mv, accel, jerk);
+                fprintf(stderr, "Send constant time s%i (%i/initialp -> %i/rintrp (jerk comp %i/intrp)) (%i/mvdist) (%i/targeti %.2f/targetf : %.2f/initialpf) = %i/dist (%i r_period/ms %i mv/intpersec) accel %.2f jerk %.2f\n", rs.id, initialp, rintrp, intrp, mvdist, targeti, targetf, initialpf, dist, r_period, mv, accel, jerk);
             
             cmds.push_back({rs.id, intrp});
             }
@@ -2676,7 +2688,7 @@ struct robot_interface_t {
         return std::string(err.begin(), err.end());
     }
 
-    void read_all() {
+    void read_all(bool set_pos = false) {
         if (!handle)
             return;
 
@@ -2700,7 +2712,10 @@ struct robot_interface_t {
             int id = ret[index];
             int pos = (ret[index + 2] << 8) | ret[index + 1];
             robot_servos[id].real_pos = (unsigned short)(pos);
+            if (set_pos)
+                robot_servos[id].pos = (unsigned short)(pos);
             robot_servos[id].last_cmd = now_time;
+            fprintf(stderr, "s%i r%i p%i\n", id, robot_servos[id].real_pos, robot_servos[id].pos);
         }
     }
 
@@ -2716,7 +2731,7 @@ struct robot_interface_t {
     void set_servos(const std::vector<std::pair<int,int>> &poses, const int time = 1000) {
         if (!handle)
             return;
-
+        return;
         const int count = poses.size() * 3 + 7;
         assert(poses.size() > 0 && "No poses");
         assert(poses.size() < 255 && count < 255 && "Should not be that big\n");
@@ -2817,10 +2832,8 @@ struct robot_interface_t {
         fprintf(stderr, "Open robot connection\n");
 
         set_robot_defaults();
-        read_all();
-
-        for (auto &rs : robot_servos)
-            rs.second.pos = rs.second.real_pos;
+        read_all(true);
+        set_segments_from_robot();
 
         return glsuccess;
     }
@@ -2873,14 +2886,9 @@ inline float segment_t::get_rotation() {
 }
 
 void servo_slider_update(ui_slider_t* ui, ui_slider_t::ui_slider_v value) {
-    //if (userinput_kinematic)
-    //   return;
-    s6->rotation = slider6->value;
-    s5->rotation = slider5->value;
-    s4->rotation = slider4->value;
-    s3->rotation = slider3->value;
-    s2->rotation = slider2->value;
-    s1->rotation = slider1->value;
+    for (int i = 0; i < servo_sliders.size() && i < servo_segments.size(); i++)
+        servo_segments[i]->rotation = servo_sliders[i]->value;
+
     robot_target = s3->get_origin() + s3->get_segment_vector();
 }
 
@@ -2915,16 +2923,28 @@ void update_whatever(ui_slider_t* ui, ui_slider_t::ui_slider_v value) {
     ui_servo_sliders->reset();
 }
 
+void set_segments_from_robot() {
+    for (int i = 0; i < servo_sliders.size() && i < servo_segments.size(); i++) {
+        auto *sg = servo_segments[i];
+        auto *ui = servo_sliders[i];
+        sg->rotation = robot_interface->robot_servos[sg->servo_num].get_interpolated_pos<float>();
+        ui->set_value(sg->get_clamped_rotation(), false);
+        fprintf(stderr, "%i -> %s (%f -> %f)\n", sg->servo_num, ui->title_cached.c_str(), sg->rotation, sg->get_clamped_rotation());
+    }
+
+    robot_target = s3->get_origin() + s3->get_segment_vector();
+}
+
 std::string segment_debug_info() {
     std::string ret = "Rotation\n";
 
     auto &rs = robot_interface->robot_servos;
 
     auto get_segment = [&](segment_t *seg) {
-        int cv = seg->get_clamped_rotation();
+        float cv = seg->get_clamped_rotation();
         if (rs.contains(seg->servo_num)) {
             auto &rv = rs[seg->servo_num];
-            return std::format("  {}: {}  {}\n", seg->servo_num, cv, rv.get_int<float>(cv));
+            return std::format("  {}: {}  {}\n", seg->servo_num, cv, rv.get_int<float, float>(cv));
         }
         return std::format("  {}: {}\n", seg->servo_num, cv);
     };
@@ -3123,6 +3143,8 @@ int init() {
     s1 = new segment_t(nullptr, z_axis, z_axis, 0, 1);
 
     segments = std::vector<segment_t*>({sBase, s6, s5, s4, s3});
+    servo_segments = std::vector<segment_t*>({s6, s5, s4, s3, s2, s1});
+    servo_sliders = std::vector({slider6, slider5, slider4, slider3, slider2, slider1});
     kinematics = new kinematics_t();
 
     joysticks = new joystick_t;
@@ -3164,7 +3186,8 @@ int load() {
 
     joysticks->query_joysticks();
     robot_interface->open(1155, 22352);
-    robot_interface->read_all();
+    set_segments_from_robot();
+    fprintf(stderr, "robot_target: %lf %lf %lf\n", robot_target[0], robot_target[1], robot_target[2]);
 
     return glsuccess;
 }

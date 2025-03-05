@@ -101,6 +101,7 @@ void safe_exit(int errcode = 0);
 void set_segments_from_robot();
 void set_segments_from_sliders();
 void set_sliders_from_segments();
+void set_robot_from_segments();
 
 tp start, end;
 dur duration;
@@ -2913,6 +2914,18 @@ void set_segments_from_robot() {
     robot_target = s3->get_origin() + s3->get_segment_vector();
 }
 
+void set_robot_from_segments() {
+    for (int i = 0; i < servo_sliders.size(); i++) {
+        auto *sg = servo_segments[i];
+        auto &rv = robot_interface->robot_servos;
+        if (!rv.contains(sg->servo_num))
+            continue;
+        
+        auto &rs = rv[sg->servo_num];
+        rs.set_pos(rs.get_int(sg->rotation));
+    }
+}
+
 std::string segment_debug_info() {
     std::string ret = "Rotation\n";
 
@@ -3142,10 +3155,9 @@ void reset() {
     camera->yaw = 0.001;
     camera->pitch = 0.001;
     camera->fov = 90;
-    for (auto &seg : segments)
+    for (auto &seg : servo_segments)
         seg->rotation = 0;
-    s1->rotation = 0;
-    s2->rotation = 0;
+    set_robot_from_segments();
     robot_target = s3->get_segment_vector() + s3->get_origin();
 }
 
@@ -3342,8 +3354,10 @@ void handle_keyboard(GLFWwindow* window, float deltaTime) {
         }
     }
 
-    if (change_2)
+    if (change_2) {
         robot_target = s3->get_segment_vector() + s3->get_origin();
+        set_sliders_from_segments();
+    }
 
     int robot3d[] = {GLFW_KEY_O, GLFW_KEY_L, GLFW_KEY_K, GLFW_KEY_SEMICOLON, GLFW_KEY_I, GLFW_KEY_P};
     bool robot3d_o[6];

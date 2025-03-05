@@ -7,6 +7,7 @@
 #include <string>
 #include <format>
 #include <iomanip>
+#include <thread>
 
 #include <signal.h>
 
@@ -86,6 +87,7 @@ kinematics_t *kinematics;
 vec3_d robot_target;
 joystick_t *joysticks;
 robot_interface_t *robot_interface;
+glm::mat4 viewport_inversion(1.);
 
 void framebuffer_size_callback(GLFWwindow *window, int width, int height);
 void mouse_button_callback(GLFWwindow *window, int button, int action, int mods);
@@ -102,6 +104,7 @@ void set_segments_from_robot();
 void set_segments_from_sliders();
 void set_sliders_from_segments();
 void set_robot_from_segments();
+void toggle_fullscreen_state();
 
 tp start, end;
 dur duration;
@@ -146,7 +149,7 @@ struct camera_t {
     glm::mat4 get_projection_matrix() {
         return glm::perspective(glm::radians(camera->fov),
                                 (float) current_window[2] / current_window[3], 
-                                camera->near, camera->far);
+                                camera->near, camera->far) * viewport_inversion;
     }
 
     void calculate_normals() {
@@ -736,7 +739,7 @@ struct shader_text_t : public shaderProgram_t {
         glEnable(GL_POLYGON_OFFSET_FILL);
         glDisable(GL_CULL_FACE);        
 
-        set_m4("projection", glm::mat4(1.));
+        set_m4("projection", glm::mat4(1.) * viewport_inversion);
         set_f("mixFactor", mixFactor);
     }
 };
@@ -831,11 +834,11 @@ struct segment_t : public mesh_t {
         return ret;
     }
 
-    inline float get_clamped_rotation() {
-        return clamp(rotation, -180, 180);
+    inline float get_clamped_rotation(bool allow_interpolate = false) {
+        return clamp(allow_interpolate ? get_rotation() : rotation, -180, 180);
     }
 
-    inline float get_rotation();
+    inline float get_rotation(bool allow_interpolate = true);
 
     float get_length() {
         return length * model_scale;
@@ -853,44 +856,44 @@ struct segment_t : public mesh_t {
         return matrix_to_vector(glm::rotate(rtn_matrix, radians, axis));
     }
 
-    glm::mat4 get_rotation_matrix() {
+    glm::mat4 get_rotation_matrix(bool allow_interpolate = true) {
         if (!parent)
             return glm::rotate(glm::mat4(1.0f), glm::radians(-90.0f), glm::vec3(x_axis));
 
-        return glm::rotate(parent->get_rotation_matrix(), glm::radians(get_rotation()), rotation_axis);
+        return glm::rotate(parent->get_rotation_matrix(allow_interpolate), glm::radians(get_rotation(allow_interpolate)), rotation_axis);
     }
 
-    glm::mat4 get_model_transform() {
+    glm::mat4 get_model_transform(bool allow_interpolate = true) {
         glm::vec3 origin = get_origin();
         glm::mat4 matrix(1.);
         
         matrix = glm::translate(matrix, origin);
-        matrix *= get_rotation_matrix();
+        matrix *= get_rotation_matrix(allow_interpolate);
         matrix = glm::scale(matrix, glm::vec3(model_scale));
         
         return matrix;        
     }
 
-    glm::vec3 get_segment_vector() {
-        return matrix_to_vector(get_rotation_matrix()) * get_length();
+    glm::vec3 get_segment_vector(bool allow_interpolate = true) {
+        return matrix_to_vector(get_rotation_matrix(allow_interpolate)) * get_length();
     }
 
-    glm::vec3 get_origin() {
+    glm::vec3 get_origin(bool allow_interpolate = true) {
         if (!parent)
             return position;
 
         if (servo_num == 5) { //shift forward just for this servo
-            glm::mat4 iden = parent->get_rotation_matrix();
+            glm::mat4 iden = parent->get_rotation_matrix(allow_interpolate);
             auto trn = glm::vec3(2.54f * -model_scale, 0., 0.);
             iden = glm::translate(iden, trn);
             iden = glm::rotate(iden, glm::radians(90.0f), {0,0,1});
 
-            return parent->get_segment_vector() + 
-                   parent->get_origin() + 
+            return parent->get_segment_vector(allow_interpolate) + 
+                   parent->get_origin(allow_interpolate) + 
                    glm::vec3(iden[3]);
         }
 
-        return parent->get_segment_vector() + parent->get_origin();
+        return parent->get_segment_vector(allow_interpolate) + parent->get_origin(allow_interpolate);
     }
 
     void renderVector(glm::vec3 origin, glm::vec3 end) {
@@ -2298,19 +2301,29 @@ struct joystick_t {
 
     void rest_robot();
 
+    void rest_position_robot();
+
     void query_robot();
+
+    void connect_robot();
 
     void process_input(double deltaTime) {
         for (auto &joy : joysticks) {
             auto &jd = joy.second;
             auto &gp = jd.state;
             auto dz = jd.deadzones.data();
+            int dp[] = {jd.get_button(GLFW_GAMEPAD_BUTTON_DPAD_UP), 
+                        jd.get_button(GLFW_GAMEPAD_BUTTON_DPAD_DOWN), 
+                        jd.get_button(GLFW_GAMEPAD_BUTTON_DPAD_LEFT), 
+                        jd.get_button(GLFW_GAMEPAD_BUTTON_DPAD_RIGHT)};
+
+            int bump[] = {jd.get_button(GLFW_GAMEPAD_BUTTON_LEFT_BUMPER),
+                          jd.get_button(GLFW_GAMEPAD_BUTTON_RIGHT_BUMPER)};
 
             if (jd.get_button(GLFW_GAMEPAD_BUTTON_GUIDE))
                 jd.set_deadzones();
 
-            if (jd.get_button(GLFW_GAMEPAD_BUTTON_LEFT_BUMPER) + 
-                jd.get_button(GLFW_GAMEPAD_BUTTON_RIGHT_BUMPER) == 3)
+            if (bump[0] + bump[1] == 3)
                 pedantic_debug = !pedantic_debug;
 
             if (jd.get_button(GLFW_GAMEPAD_BUTTON_BACK) == GLFW_PRESS)
@@ -2319,11 +2332,9 @@ struct joystick_t {
             if (jd.get_button(GLFW_GAMEPAD_BUTTON_START) == GLFW_PRESS)
                 ::reset();
 
-            if (!camera_move && jd.get_button(GLFW_GAMEPAD_BUTTON_A) == GLFW_PRESS) {
+            if (!camera_move && jd.get_button(GLFW_GAMEPAD_BUTTON_A) == GLFW_PRESS)
                 rest_robot();
-            }
 
-            int dp[] = {jd.get_button(GLFW_GAMEPAD_BUTTON_DPAD_UP), jd.get_button(GLFW_GAMEPAD_BUTTON_DPAD_DOWN)};
             if (!camera_move && (dp[0] || dp[1])) {
                 auto dir = s3->get_segment_vector();
                 auto sp = vec3_d(dir) * vec3_d(0.01) * deltaTime;
@@ -2333,6 +2344,18 @@ struct joystick_t {
                     robot_target += sp;
                 kinematics->solve_inverse(robot_target);
             }
+
+            if (!camera_move && (dp[2] || dp[3]) && bump[0] == 1)
+                rest_position_robot();
+
+            if (camera_move && dp[0] == 1)
+                connect_robot();
+
+            if (camera_move && dp[1] == 1)
+                toggle_fullscreen_state();
+
+            if (camera_move && dp[2] == 1)
+                viewport_inversion = glm::scale(viewport_inversion, {-1,-1,1});
 
             if (jd.get_button(GLFW_GAMEPAD_BUTTON_Y) == GLFW_PRESS) {
                 debug_mode = !debug_mode;
@@ -2841,8 +2864,31 @@ void joystick_t::rest_robot() {
     robot_interface->servos_off();
 }
 
-inline float segment_t::get_rotation() {
-    if (model_interpolation) {
+void rest_position_blocking() {
+    float iv = 1000.0;
+    robot_interface->set_servos({{1,500},
+                                 {2,500},
+                                 {3,500},
+                                 {4,500},
+                                 {5,500},
+                                 {6,500}}, iv);
+
+    std::this_thread::sleep_for(dur(iv));
+
+    robot_interface->set_servo(3, 1, iv);
+}
+
+void joystick_t::rest_position_robot() {
+    std::thread(rest_position_blocking);
+}
+
+void joystick_t::connect_robot() {
+    robot_interface->open(1155, 22352);
+    set_segments_from_robot();
+}
+
+inline float segment_t::get_rotation(bool allow_interpolate) {
+    if (model_interpolation && allow_interpolate) {
         auto &rb = robot_interface->robot_servos;
         if (rb.contains(servo_num)) {
             auto &rs = rb[servo_num];
@@ -3157,8 +3203,9 @@ void reset() {
     camera->fov = 90;
     for (auto &seg : servo_segments)
         seg->rotation = 0;
+    set_sliders_from_segments();
     set_robot_from_segments();
-    robot_target = s3->get_segment_vector() + s3->get_origin();
+    robot_target = s3->get_segment_vector(false) + s3->get_origin(false);
 }
 
 int load() {
@@ -3259,7 +3306,6 @@ void handle_error(const char *str, int errcode) {
 
 void handle_signal(int sig) {
     fprintf(stderr, "Close signal caught\n");
-    //safe_exit();
     hint_exit();
 }
 
@@ -3284,30 +3330,42 @@ void cursor_position_callback(GLFWwindow *window, double x, double y) {
     camera->mouseMove(window, x, y);
 }
 
+void toggle_fullscreen_state() {
+    static tp last_toggle = hrc::now();
+    auto dur = hrc::now() - last_toggle;
+
+    if (dur.count() > .5) {
+        fullscreen = !fullscreen;
+
+        GLFWmonitor *monitor = glfwGetWindowMonitor(window);
+        
+        if (!monitor)
+            monitor = glfwGetPrimaryMonitor();
+
+        const GLFWvidmode *mode = glfwGetVideoMode(monitor);
+
+        assert(mode != nullptr && "glfwGetVideoMode returned null\n");
+
+        if (fullscreen)
+            glfwSetWindowMonitor(window, monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
+        else
+            glfwSetWindowMonitor(window, 0, initial_window[0], initial_window[1], initial_window[2], initial_window[3], mode->refreshRate);            
+
+        glfwGetWindowPos(window, &current_window[0], &current_window[1]);
+        glfwGetWindowSize(window, &current_window[2], &current_window[3]);
+
+        last_toggle = hrc::now();
+    }
+}
+
 void handle_keyboard(GLFWwindow* window, float deltaTime) {
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
         hint_exit();
         return;
     }
 
-    static tp last_toggle = hrc::now();
-    std::chrono::duration<float> duration = hrc::now() - last_toggle;
-
-    if (glfwGetKey(window, GLFW_KEY_F11) == GLFW_PRESS && duration.count() > .5) {
-        fullscreen = !fullscreen;
-
-        GLFWmonitor *monitor = glfwGetWindowMonitor(window);
-        if (!monitor)
-            monitor = glfwGetPrimaryMonitor();
-        const GLFWvidmode *mode = glfwGetVideoMode(monitor);
-
-        if (fullscreen)
-            glfwSetWindowMonitor(window, monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
-        else
-            glfwSetWindowMonitor(window, 0, initial_window[0], initial_window[1], initial_window[2], initial_window[3], mode->refreshRate);
-
-        last_toggle = hrc::now();
-    }
+    if (glfwGetKey(window, GLFW_KEY_F11))
+        toggle_fullscreen_state();
 
     if (uiHandler->onKeyboard(deltaTime))
         return;

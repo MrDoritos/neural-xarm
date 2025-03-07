@@ -6,7 +6,7 @@ Project for controlling an xArm robotic arm. Eventually will also include other 
 
 Using a neural network for control was an initial idea, however when you consider you need a working movement model to generate the data to train a neural network I put the cart before the horse. I still think it would be a fun idea to pursue.
 
-You can compile the C++ version or use the python version. I had to port the algorithm to C++/OpenGL to better support a more embedded device.
+You can compile the C++ version or use the python version. I had to port the algorithm to C++/OpenGL to better support a slower device than my development computer. The C++ version will be my primary focus.
 
 Both programs intend on solving the same idea which is display a virtual model of the robotic arm.
 
@@ -45,13 +45,23 @@ g++ main.cpp -lGL -lglfw -lhidapi-libusb -g -o main.out
 
 Note, if `<format>` is not found, you may not have g++13. This was the case on my Debian 12/bookworm laptop. To fix this, the best way other than adding an external repo or 3rd party .deb file is to compile gcc/g++ from source see https://stackoverflow.com/questions/78306968/installing-gcc13-and-g13-in-debian-bookworm-rust-docker-image for the example commands to achieve this. You will also need to add -static-libstdc++ and possibly compile glfw3 3.4 for joystick support.
 
-### Optional for USB
+### Connecting to the robot with USB
 
 ```
 sudo apt install libhidapi-hidraw0 libhidapi-libusb0
 ```
 
 Note, to use the robot over USB, you have to add a udev rule for the unprivileged user. Otherwise run the program with sudo or as root or admin. For more details see https://github.com/libusb/hidapi
+
+### Connecting bluetooth controllers
+
+In `/etc/bluetooth/input.conf`, uncomment or modify the `ClassicBondedOnly` variable to be `ClassicBondedOnly=false`. Setting this to false makes your device vulnerable to HID spoof attacks, but allows PS3 controllers to connect.
+
+Then restart bluetooth daemon
+
+```
+sudo systemctl restart bluetooth
+```
 
 ## Issues
 

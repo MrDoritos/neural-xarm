@@ -2,3 +2,5 @@
 *.blend1
 .vscode
 __pycache__
+callgrind*
+*.o

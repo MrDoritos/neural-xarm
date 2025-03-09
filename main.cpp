@@ -1551,14 +1551,16 @@ void outputTest() {
 }
 
 int init_context() {
-    glfwInit();
+    if (!glfwInit())
+        handle_error("Failed to initialize GLFW");
 
     initial_window = {0,0,1600,900};
 
     window = glfwCreateWindow(initial_window[2], initial_window[3], "xArm", nullptr, nullptr);
-    if (!window) {
-        handle_error("failed to create glfw window");
-    }
+
+    if (!window)
+        handle_error("Failed to create GLFW window");
+
     glfwMakeContextCurrent(window);
 
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
@@ -1740,7 +1742,7 @@ textFragmentShader->load("shaders/text_fragment_shader.glsl"))
 
 int main() {
     if (init_context() || init() || load())
-        handle_error("failed to load", glfail);
+        handle_error("Failed to load", glfail);
 
     while (!glfwWindowShouldClose(window)) {
         glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
@@ -1790,7 +1792,9 @@ int main() {
 
 void destroy() {
     glfwTerminate();
-    robot_interface->destroy();
+    
+    if (robot_interface)
+        robot_interface->destroy();
 }
 
 void hint_exit() {

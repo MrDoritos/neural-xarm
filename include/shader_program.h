@@ -50,16 +50,16 @@ struct shaderProgram_t {
     virtual bool get_uniform_locations() { return glsuccess; }
 
     virtual GLint get_uniform_location(const char *name) {
+        const std::string _conv(name);
+
         if (resolved_locations.size() > 0) {
-            std::string _conv(name);
-            if (resolved_locations.find(_conv) != resolved_locations.end())
+            if (resolved_locations.contains(_conv))
                 return resolved_locations[_conv];
         }
 
         GLint loc = glGetUniformLocation(programId, name);
 
-        if (save_locations) {
-            std::string _conv(name);
+        if (save_locations && loc > -1) {
             resolved_locations[_conv] = loc;
         }
 
@@ -104,10 +104,7 @@ struct shaderProgram_t {
     }
 
     virtual glm::mat3 get_norm(glm::mat4 model) {
-        glm::mat3 norm(model);
-        norm = glm::inverse(norm);
-        norm = glm::transpose(norm);
-        return glm::transpose(glm::inverse(glm::mat3(1.)));
+        return glm::transpose(glm::inverse(glm::mat3(model)));
     }
 
     virtual void set_camera(camera_t *camera, glm::mat4 model = glm::mat4(1.0f), std::string view_loc = "view", std::string model_loc = "model", std::string projection_loc = "projection", std::string norm_loc = "norm") {        

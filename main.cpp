@@ -1596,8 +1596,7 @@ int init() {
     mainTexture = new texture_t();
     textTexture = new texture_t();
 
-    robotMaterial = new material_t(mainTexture,mainTexture,0.2f);
-    mainProgram->set_material(robotMaterial);
+    robotMaterial = new material_t(mainTexture,mainTexture,1.0f);
 
     uiHandler = new ui_element_t(window, {-1.0f,-1.0f,2.0f,2.0f});
     //uiHandler->add_child(new ui_text_t(window, {0.0,0.0,.1,.1}, "Hello World!"));
@@ -1618,10 +1617,10 @@ int init() {
     slider1 = ui_servo_sliders->add_child(new ui_slider_t(window, textProgram, textTexture, sliderPos + (sliderAdd * glm::vec4(sl++)), sMM.x, sMM.y, 0., "Servo 1", true, servo_slider_update));
     //debugInfo = new ui_text_t(window, {0.0,0.0,1.,1.}, "Hello world 2!");
     
-    slider_ambient = debugInfo->add_child(new ui_slider_t(window, textProgram, textTexture, sliderPos + (sliderAdd * glm::vec4(sl++)), -2., 2., .5, "Ambient Light", false));
-    slider_diffuse = debugInfo->add_child(new ui_slider_t(window, textProgram, textTexture, sliderPos + (sliderAdd * glm::vec4(sl++)), -2., 2., 0.5, "Diffuse Light", false));
-    slider_specular = debugInfo->add_child(new ui_slider_t(window, textProgram, textTexture, sliderPos + (sliderAdd * glm::vec4(sl++)), -2., 2., 0., "Specular Light", false));
-    slider_shininess = debugInfo->add_child(new ui_slider_t(window, textProgram, textTexture, sliderPos + (sliderAdd * glm::vec4(sl++)), -2., 2., 0.5, "Shininess", false));
+    slider_ambient = debugInfo->add_child(new ui_slider_t(window, textProgram, textTexture, sliderPos + (sliderAdd * glm::vec4(sl++)), -2., 2., -0.3, "Ambient Light", false));
+    slider_diffuse = debugInfo->add_child(new ui_slider_t(window, textProgram, textTexture, sliderPos + (sliderAdd * glm::vec4(sl++)), -2., 2., 1.5, "Diffuse Light", false));
+    slider_specular = debugInfo->add_child(new ui_slider_t(window, textProgram, textTexture, sliderPos + (sliderAdd * glm::vec4(sl++)), -2., 2., -0.4, "Specular Light", false));
+    slider_shininess = debugInfo->add_child(new ui_slider_t(window, textProgram, textTexture, sliderPos + (sliderAdd * glm::vec4(sl++)), -2., 2., 0.6, "Shininess", false));
 
     sliderPos = glm::vec4{-0.95,-.2,0,0} + glm::vec4{0,0,.25,0.1};
     sliderAdd = {0,.105,0,0};
@@ -1758,19 +1757,15 @@ int main() {
         mainProgram->use();
         mainProgram->set_camera(camera);
 
-        //glm::vec3 diffuse(0.6f), specular(0.2f), ambient(0.0f);
         glm::vec3 diffuse(slider_diffuse->value), specular(slider_specular->value), ambient(slider_ambient->value);
 
-        float shininess = slider_shininess->value;
-        robotMaterial->shininess = shininess;
+        robotMaterial->shininess = slider_shininess->value;
 
         mainProgram->set_v3("eyePos", camera->position);
         mainProgram->set_v3("light.position", glm::vec3(5.0f, 15.0f, 5.0f));
         mainProgram->set_v3("light.ambient", ambient);
         mainProgram->set_v3("light.diffuse", diffuse);
         mainProgram->set_v3("light.specular", specular);
-        //mainProgram->set_f("material.shininess", 2.0f);
-        mainProgram->set_f("material.shininess", shininess);
 
         mainProgram->set_material(robotMaterial);
 
@@ -1792,7 +1787,7 @@ int main() {
 
 void destroy() {
     glfwTerminate();
-    
+
     if (robot_interface)
         robot_interface->destroy();
 }

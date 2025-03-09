@@ -5,11 +5,8 @@
 
 struct texture_t {
     GLuint textureId;
-    std::string path;
 
-    texture_t(std::string path) :path(path),textureId(gluninitialized) { }
-
-    texture_t() :path(),textureId(gluninitialized) { }
+    texture_t() : textureId(gluninitialized) { }
 
     bool isLoaded() {
         return textureId != gluninitialized;
@@ -57,7 +54,7 @@ struct texture_t {
         return glsuccess;
     }
 
-    bool load() {
+    bool load(const std::string &path) {
         int width, height, channels;
         unsigned char* image = stbi_load(path.c_str(), &width, &height, &channels, 0);
 

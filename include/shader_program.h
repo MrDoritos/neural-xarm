@@ -131,17 +131,10 @@ struct shaderProgram_t {
     }
 
     bool load() {
-        for (auto *shader : shaders)
-            if (!shader->isLoaded())
-                if (shader->load() != glsuccess) {
-                    std::cout << "Shader failed to load, will not link shader" << std::endl;
-                    return glfail;
-                } else {
-                    if (shader->shaderId == gluninitialized) {
-                        std::cout << "shaderId is uninitialized" << std::endl;
-                        return glfail;
-                    }
-                }
+        for (auto *shader : shaders) {
+            assert(shader->isLoaded() && "Shader not loaded\n");
+            assert(shader->shaderId != gluninitialized && "ShaderId not valid\n");
+        }
 
         programId = glCreateProgram();
         
@@ -155,7 +148,7 @@ struct shaderProgram_t {
         if (success == GL_FALSE) {
             char infoLog[513];
             glGetProgramInfoLog(programId, 512, NULL, infoLog);
-            std::cout << "Error linking shader\n" << infoLog << std::endl;
+            std::cout << "Error: Linking shader\n" << infoLog << std::endl;
             return glfail;
         }
 

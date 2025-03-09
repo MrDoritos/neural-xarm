@@ -8,20 +8,19 @@
 struct shader_t {
     GLuint shaderId;
     GLenum type;
-    std::string path;
 
-    shader_t(std::string path, GLenum type)
-    :path(path),type(type),shaderId(gluninitialized) { }
+    shader_t(GLenum type)
+    :type(type),shaderId(gluninitialized) { }
 
     bool isLoaded() {
         return shaderId != gluninitialized;
     }
 
-    bool load() {
+    bool load(const std::string &path) {
         std::stringstream buffer;
         std::ifstream file(path);
         if (!file.is_open()) {
-            std::cerr << "Error opening shader file: " << path << std::endl;
+            std::cerr << "Error: Opening shader file: " << path << std::endl;
             return glfail;
         }
         buffer << file.rdbuf();
@@ -37,7 +36,7 @@ struct shader_t {
         if (compiled == GL_FALSE) {
             char infoLog[infoLen];
             glGetShaderInfoLog(shaderId, infoLen, nullptr, infoLog);
-            std::cerr << "Error compiling shader: " << path << std::endl;
+            std::cerr << "Error: Compiling shader: " << path << std::endl;
             std::cerr << infoLog << std::endl;
             glDeleteShader(shaderId);
             return glfail;

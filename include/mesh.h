@@ -167,9 +167,7 @@ shape count: %i\n",
 
             auto &tx = textures[fn];
 
-            tx = texture_t(fn);
-
-            if (!tx.load())
+            if (!tx.load(fn))
                 continue;
 
             fprintf(stderr, "Failed to load texture %s\n", fn.c_str());

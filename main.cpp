@@ -1607,17 +1607,16 @@ int init_context() {
 
 int init() {
     camera = new camera_t();
-    mainVertexShader = new shader_t("shaders/vertex.glsl", GL_VERTEX_SHADER);
-    mainFragmentShader = new shader_t("shaders/fragment.glsl", GL_FRAGMENT_SHADER);
-    textVertexShader = new shader_t("shaders/text_vertex_shader.glsl", GL_VERTEX_SHADER);
-    textFragmentShader = new shader_t("shaders/text_fragment_shader.glsl", GL_FRAGMENT_SHADER);
+    mainVertexShader = new shader_t(GL_VERTEX_SHADER);
+    mainFragmentShader = new shader_t(GL_FRAGMENT_SHADER);
+    textVertexShader = new shader_t(GL_VERTEX_SHADER);
+    textFragmentShader = new shader_t(GL_FRAGMENT_SHADER);
 
     mainProgram = new shader_materials_t(shaderProgram_t(mainVertexShader, mainFragmentShader));
     textProgram = new shader_text_t(shaderProgram_t(textVertexShader, textFragmentShader));
 
     mainTexture = new texture_t();
-    mainTexture->generate(glm::vec4(0.0f,0.0f,1.0f,1.0f));
-    textTexture = new texture_t("assets/text.png");
+    textTexture = new texture_t();
 
     robotMaterial = new material_t(mainTexture,mainTexture,0.2f);
     mainProgram->set_material(robotMaterial);
@@ -1728,10 +1727,19 @@ void reset() {
 }
 
 int load() {
-    if ((textTexture->load() ||
-        mainProgram->load() ||
+    if (mainTexture->generate(glm::vec4(0.0f,0.0f,1.0f,1.0f)) ||
+        textTexture->load("assets/text.png"))
+        handle_error("Failed to load textures");
+
+    if (mainVertexShader->load("shaders/vertex.glsl") ||
+mainFragmentShader->load("shaders/fragment.glsl") ||
+textVertexShader->load("shaders/text_vertex_shader.glsl") ||
+textFragmentShader->load("shaders/text_fragment_shader.glsl"))
+        handle_error("Failed to load shaders");
+
+    if ((mainProgram->load() ||
         textProgram->load()))
-        handle_error("a component failed to load");
+        handle_error("Failed to compile shaders");
 
     if (sBase->load("assets/xarm-sbase.stl") ||
         //s6->load("assets/xarm-s6.stl") ||
@@ -1739,7 +1747,7 @@ int load() {
         s5->load("assets/xarm-s5.stl") ||
         s4->load("assets/xarm-s4.stl") ||
         s3->load("assets/xarm-s3.stl"))
-        handle_error("a model failed to load");
+        handle_error("Failed to load models");
 
     reset();
     uiHandler->load();

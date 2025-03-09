@@ -121,6 +121,7 @@ struct shaderProgram_t {
     }
 
     virtual void set_sampler(const char *name, texture_t *texture, int unit = 0) {
+        assert(texture && "Texture null\n");
         texture->use(unit);
         set_i(name, unit);
     }

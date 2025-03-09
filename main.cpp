@@ -530,7 +530,7 @@ shape count: %i\n",
                 auto i0 = index[3 * f + 0];
                 auto i1 = index[3 * f + 1];
                 auto i2 = index[3 * f + 2];
-                decltype(i2) is[3] = {i0,i1,i2};
+                glm::vec<3, decltype(i2)> is = {i0,i1,i2};
 
                 if (material_id < 0 || material_id >= materials.size())
                     material_id = materials.size() - 1;
@@ -538,15 +538,13 @@ shape count: %i\n",
                 vertex_t vnt[3];
 
                 for (int k = 0; k < 3; k++) {
-                    int vi[3], ni[3], ti[3];
+                    glm::ivec3 vi, ni, ti;
 
                     for (int i = 0; i < 3; i++) {
                         vi[i] = is[i].vertex_index;
                         ni[i] = is[i].normal_index;
                         ti[i] = is[i].texcoord_index;                        
-                    }
-
-                    for (int i = 0; i < 3; i++) {
+                        
                         auto &vert = vnt[i];
                         vert.vertex[k] = verts[3 * vi[i] + k];
                         vert.normal[k] = norms[3 * ni[i] + k];

@@ -24,6 +24,8 @@
 
 #include <hidapi/hidapi.h>
 
+#include <tiny_obj_loader.h>
+
 #define STB_IMAGE_IMPLEMENTATION
 #include "thirdparty/stb_image.h"
 #include "thirdparty/stl_reader.h"
@@ -35,7 +37,8 @@ struct shader_t;
 struct shaderProgram_t;
 struct shader_text_t;
 struct shader_materials_t;
-struct segment_t;
+template<typename mesh_base = mesh_t>
+struct segment_T;
 struct material_t;
 struct kinematics_t;
 struct debug_object_t;
@@ -51,11 +54,12 @@ using vec3_d = glm::vec<3, double>;
 using hrc = std::chrono::high_resolution_clock;
 using tp = std::chrono::time_point<hrc>;
 using dur = std::chrono::duration<double>;
+using segment_t = segment_T<>;
 
 glm::vec<4, int> initial_window;
 glm::vec<4, int> current_window;
 bool fullscreen;
-bool debug_mode = false;
+bool debug_mode = true;
 bool debug_pedantic = false;
 bool debug_ui = false;
 bool model_interpolation = true;
@@ -257,6 +261,85 @@ struct camera_t {
     }
 };
 
+struct texture_t {
+    GLuint textureId;
+    std::string path;
+
+    texture_t(std::string path) :path(path),textureId(gluninitialized) { }
+
+    texture_t() :path(),textureId(gluninitialized) { }
+
+    bool isLoaded() {
+        return textureId != gluninitialized;
+    }
+
+    void use(int unit) {
+        glActiveTexture(GL_TEXTURE0 + unit);
+        glBindTexture(GL_TEXTURE_2D, textureId);
+    }
+
+    void use() {
+        glBindTexture(GL_TEXTURE_2D, textureId);
+    }
+
+    bool generate(glm::vec<4, float> rgba) {
+        int width = 4, height = 4, channels = 4;
+        int pixels = width * height;
+        int size = pixels * channels;
+        unsigned char* image = new unsigned char[size];
+
+        glm::vec<4, unsigned char> vu = rgba * glm::vec4(255.0f);
+
+        if (!image) {
+            printf("Error generating image <%i,%i,%i,(%i),(%i),<%i,%i,%i,%i>>\n", width, height, channels, pixels, size, vu.r,vu.b,vu.g,vu.a);
+            return glfail;
+        }
+
+        for (int i = 0; i < pixels; i++) {
+            image[i * channels + 0] = vu.r;
+            image[i * channels + 1] = vu.g;
+            image[i * channels + 2] = vu.b;
+            image[i * channels + 3] = vu.a;
+        }
+
+        glGenTextures(1, &textureId);
+        glBindTexture(GL_TEXTURE_2D, textureId);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, image);
+        glGenerateMipmap(GL_TEXTURE_2D);
+
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+        return glsuccess;
+    }
+
+    bool load() {
+        int width, height, channels;
+        unsigned char* image = stbi_load(path.c_str(), &width, &height, &channels, 0);
+
+        if (!image) {
+            std::cout << "Error opening image file: " << path << std::endl;
+            return glfail;
+        }
+
+        glGenTextures(1, &textureId);
+        glBindTexture(GL_TEXTURE_2D, textureId);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, image);
+        glGenerateMipmap(GL_TEXTURE_2D);
+
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+        stbi_image_free(image);
+
+        return glsuccess;
+    }
+};
+
 struct mesh_t {
     struct vertex_t {
         glm::vec3 vertex;
@@ -359,6 +442,133 @@ struct mesh_t {
         return glsuccess;
     }
 
+    /*
+    Blender export Y forward, Z up. Triangulation, UV, normals
+    */
+    bool loadObj(const char *filepath) {
+        tinyobj::attrib_t inattrib;
+        std::vector<tinyobj::shape_t> inshapes;
+        std::vector<tinyobj::material_t> inmaterials;
+        std::map<std::string, texture_t> textures;
+
+        std::string basedir = filepath;
+        if (basedir.find_last_of("/\\") != std::string::npos)
+            basedir = basedir.substr(0, basedir.find_last_of("/\\"));
+        else
+            basedir = ".";
+        basedir += "/";
+
+        std::string warn, err;
+        bool ret = tinyobj::LoadObj(&inattrib, &inshapes, &inmaterials, &warn, &err, filepath, basedir.c_str());
+
+        if (!warn.empty())
+            fprintf(stderr, "ObjLoad warn: %s\n", warn.c_str());
+        if (!err.empty())
+            fprintf(stderr, "ObjLoad error: %s\n", err.c_str());
+        if (!ret)
+            return glfail;
+
+        if (debug_mode) {
+            fprintf(stderr, \
+"obj file: %s\n\
+vertex count: %i\n\
+normal count: %i\n\
+texcoord count: %i\n\
+material count: %i\n\
+shape count: %i\n",
+            filepath, 
+            (int)inattrib.vertices.size(), 
+            (int)inattrib.normals.size(), 
+            (int)inattrib.texcoords.size(), 
+            (int)inmaterials.size(), 
+            (int)inshapes.size());
+        }
+
+        inmaterials.push_back(tinyobj::material_t());
+
+        if (debug_mode)
+            for (auto &mat : inmaterials)
+                fprintf(stderr, "material.diffuse_texname = %s\n",
+                    mat.diffuse_texname.c_str());
+        
+        for (auto &mat : inmaterials) {
+            auto &fn = mat.diffuse_texname;
+
+            if (!fn.length())
+                continue;
+
+            if (textures.contains(fn))
+                continue;
+
+            auto &tx = textures[fn];
+
+            tx = texture_t(fn);
+
+            if (!tx.load())
+                continue;
+
+            fprintf(stderr, "Failed to load texture %s\n", fn.c_str());
+        }
+
+        auto &attrib = inattrib;
+        auto &materials = inmaterials;
+
+        for (size_t s = 0; s < inshapes.size(); s++) {
+            auto &shape = inshapes[s];
+            auto &mesh = shape.mesh;
+            auto &verts = attrib.vertices;
+            auto &norms = attrib.normals;
+            auto &texs = attrib.texcoords;
+            auto &index = mesh.indices;
+            auto vertCount = index.size();
+            auto triCount = vertCount / 3;
+
+            verticies.reserve(verticies.size() + vertCount);
+
+            for (size_t f = 0; f < triCount; f++) {
+                int material_id = mesh.material_ids[f];
+                auto i0 = index[3 * f + 0];
+                auto i1 = index[3 * f + 1];
+                auto i2 = index[3 * f + 2];
+                decltype(i2) is[3] = {i0,i1,i2};
+
+                if (material_id < 0 || material_id >= materials.size())
+                    material_id = materials.size() - 1;
+
+                vertex_t vnt[3];
+
+                for (int k = 0; k < 3; k++) {
+                    int vi[3], ni[3], ti[3];
+
+                    for (int i = 0; i < 3; i++) {
+                        vi[i] = is[i].vertex_index;
+                        ni[i] = is[i].normal_index;
+                        ti[i] = is[i].texcoord_index;                        
+                    }
+
+                    for (int i = 0; i < 3; i++) {
+                        auto &vert = vnt[i];
+                        vert.vertex[k] = verts[3 * vi[i] + k];
+                        vert.normal[k] = norms[3 * ni[i] + k];
+                        if (k < 2)
+                            vert.tex[k] = texs[2 * ti[i] + k];
+                    }
+                }
+
+                for (int i = 0; i < 3; i++)
+                    verticies.push_back(vnt[i]);
+            }
+        }
+
+        vertexCount = verticies.size();
+        modified = true;
+
+        if (debug_mode)
+            fprintf(stderr, "Final verticies: %i\n", vertexCount);
+
+        return glsuccess;
+    }
+
     virtual void mesh() {
         size_t coordSize = sizeof verticies[0].vertex;
         size_t normSize = sizeof verticies[0].normal;
@@ -404,85 +614,6 @@ struct mesh_t {
         glBindVertexArray(vao);
         glDrawArrays(GL_TRIANGLES, 0, vertexCount);
         glBindVertexArray(0);
-    }
-};
-
-struct texture_t {
-    GLuint textureId;
-    std::string path;
-
-    texture_t(std::string path) :path(path),textureId(gluninitialized) { }
-
-    texture_t() :path(),textureId(gluninitialized) { }
-
-    bool isLoaded() {
-        return textureId != gluninitialized;
-    }
-
-    void use(int unit) {
-        glActiveTexture(GL_TEXTURE0 + unit);
-        glBindTexture(GL_TEXTURE_2D, textureId);
-    }
-
-    void use() {
-        glBindTexture(GL_TEXTURE_2D, textureId);
-    }
-
-    bool generate(glm::vec<4, float> rgba) {
-        int width = 4, height = 4, channels = 4;
-        int pixels = width * height;
-        int size = pixels * channels;
-        unsigned char* image = new unsigned char[size];
-
-        glm::vec<4, unsigned char> vu = rgba * glm::vec4(255.0f);
-
-        if (!image) {
-            printf("Error generating image <%i,%i,%i,(%i),(%i),<%i,%i,%i,%i>>\n", width, height, channels, pixels, size, vu.r,vu.b,vu.g,vu.a);
-            return glfail;
-        }
-
-        for (int i = 0; i < pixels; i++) {
-            image[i * channels + 0] = vu.r;
-            image[i * channels + 1] = vu.g;
-            image[i * channels + 2] = vu.b;
-            image[i * channels + 3] = vu.a;
-        }
-
-        glGenTextures(1, &textureId);
-        glBindTexture(GL_TEXTURE_2D, textureId);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, image);
-        glGenerateMipmap(GL_TEXTURE_2D);
-
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-
-        return glsuccess;
-    }
-
-    bool load() {
-        int width, height, channels;
-        unsigned char* image = stbi_load(path.c_str(), &width, &height, &channels, 0);
-
-        if (!image) {
-            std::cout << "Error opening image file: " << path << std::endl;
-            return glfail;
-        }
-
-        glGenTextures(1, &textureId);
-        glBindTexture(GL_TEXTURE_2D, textureId);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, image);
-        glGenerateMipmap(GL_TEXTURE_2D);
-
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-
-        stbi_image_free(image);
-
-        return glsuccess;
     }
 };
 
@@ -803,14 +934,24 @@ struct debug_object_t : public mesh_t {
     }    
 };
 
-struct segment_t : public mesh_t {
-    segment_t(segment_t *parent, glm::vec3 rotation_axis, glm::vec3 initial_direction, float length, int servo_num) {
+template<typename mesh_base>
+struct segment_T {
+    segment_T(segment_T *parent, glm::vec3 rotation_axis, glm::vec3 initial_direction, float length, int servo_num) {
         this->parent = parent;
         this->rotation_axis = rotation_axis;
         this->initial_direction = initial_direction;
         this->length = length;
         this->servo_num = servo_num;
         this->rotation = 0.0f;
+        this->mesh = new mesh_base();
+    }
+
+    ~segment_T() {
+        if (this->mesh) {
+            ~this->mesh();
+            delete this->mesh;
+        }
+        this->mesh = nullptr;
     }
 
     static glm::vec3 matrix_to_vector(glm::mat4 mat) {
@@ -879,8 +1020,10 @@ struct segment_t : public mesh_t {
     }
 
     glm::vec3 get_origin(bool allow_interpolate = true) {
-        if (!parent)
-            return position;
+        if (!parent) {
+            assert(mesh && "Mesh null\n");
+            return mesh->position;
+        }
 
         if (servo_num == 5) { //shift forward just for this servo
             glm::mat4 iden = parent->get_rotation_matrix(allow_interpolate);
@@ -928,7 +1071,12 @@ struct segment_t : public mesh_t {
         mainProgram->set_camera(camera, get_model_transform());
         if (debug_pedantic)
             mainProgram->set_v3("light.ambient", debug_color);
-        mesh_t::render();
+        mesh->render();
+    }
+
+    virtual bool load(const char *path) {
+        assert(mesh && "Mesh null");
+        return mesh->load(path);
     }
 
     float model_scale = 0.1;
@@ -937,6 +1085,7 @@ struct segment_t : public mesh_t {
     glm::vec3 debug_color;
     float length, rotation;
     int servo_num;
+    mesh_t *mesh;
 };
 
 struct text_parameters {
@@ -2887,7 +3036,8 @@ void joystick_t::connect_robot() {
     set_segments_from_robot();
 }
 
-inline float segment_t::get_rotation(bool allow_interpolate) {
+template<>
+inline float segment_T<>::get_rotation(bool allow_interpolate) {
     if (model_interpolation && allow_interpolate) {
         auto &rb = robot_interface->robot_servos;
         if (rb.contains(servo_num)) {
@@ -3211,17 +3361,16 @@ void reset() {
 int load() {
     if ((textTexture->load() ||
         mainProgram->load() ||
-        textProgram->load())) {
+        textProgram->load()))
         handle_error("a component failed to load");
-    }
 
     if (sBase->load("assets/xarm-sbase.stl") ||
-        s6->load("assets/xarm-s6.stl") ||
+        //s6->load("assets/xarm-s6.stl") ||
+        s6->mesh->loadObj("assets/xarm-s6.obj") ||
         s5->load("assets/xarm-s5.stl") ||
         s4->load("assets/xarm-s4.stl") ||
-        s3->load("assets/xarm-s3.stl")) {
+        s3->load("assets/xarm-s3.stl"))
         handle_error("a model failed to load");
-    }
 
     reset();
     uiHandler->load();

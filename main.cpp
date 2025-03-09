@@ -21,6 +21,7 @@
 #include "include/ui_element.h"
 #include "include/ui_text.h"
 #include "include/ui_slider.h"
+#include "include/ui_toggle.h"
 
 struct shader_text_t;
 struct shader_materials_t;
@@ -29,7 +30,6 @@ struct segment_T;
 struct kinematics_t;
 struct debug_object_t;
 struct debug_info_t;
-struct ui_toggle_t;
 struct joystick_t;
 struct robot_interface_t;
 
@@ -328,108 +328,6 @@ struct segment_T {
     float length, rotation;
     int servo_num;
     mesh_t *mesh;
-};
-
-struct ui_toggle_t : public ui_element_t {
-    using toggle_callback_t = std::function<void(ui_toggle_t*,bool)>;
-    toggle_callback_t toggle_callback;
-
-    bool toggle_state, held, initial_state;
-    std::string cached_title;
-    ui_text_t *title_text;
-
-    ui_toggle_t(GLFWwindow *window, glm::vec4 XYWH, std::string title = std::string(), bool initial_state = false, toggle_callback_t toggle_callback = toggle_callback_t())
-    :ui_element_t(window, XYWH),toggle_state(initial_state),initial_state(initial_state),held(false),cached_title(title),toggle_callback(toggle_callback) {
-        if (cached_title.size() > 0)
-            title_text = add_child(new ui_text_t(window, XYWH - glm::vec4(title_height/4.,title_height,0,0), cached_title));
-    }
-
-    bool onMouse(int key, int action, int mods) override {
-        if (is_cursor_bound() && key == GLFW_MOUSE_BUTTON_LEFT) {
-            if (action == GLFW_RELEASE) {
-                set_toggle();
-                set_held(false);
-            } else
-            if (action == GLFW_PRESS) {
-                set_held(true);
-            }
-            return glcaught;
-        }
-
-        return glsuccess;
-    }
-
-    void set_toggle() {
-        set_state(!toggle_state);
-    }
-
-    void set_held(bool state) {
-        if (held != state) {
-            modified = true;
-            held = state;
-        }
-    }
-
-    void set_state(bool state) {
-        modified = true;
-        toggle_state = state;
-        if (toggle_callback)
-            toggle_callback(this, toggle_state);
-    }
-
-    bool reset() override {
-        ui_element_t::reset();
-
-        set_held(false);
-        set_state(initial_state);
-        if (title_text)
-            title_text->set_string(cached_title);
-
-        return glsuccess;
-    }
-
-    bool mesh() override {
-        modified = false;
-        vertexCount = 0;
-
-        text_t *buffer = new text_t[2 * 6];
-
-        glm::vec4 button_held_color(0,0,0.5,1.);
-        glm::vec4 button_on_color(0,0,1.0,1.);
-        glm::vec4 button_off_color(0,0,0.1,1.);
-
-        glm::vec4 color = (held ? button_held_color : (toggle_state ? button_on_color : button_off_color));
-
-        add_rect(buffer, vertexCount, XYWH, color, true);
-
-        glBindVertexArray(vao);
-        glBindBuffer(GL_ARRAY_BUFFER, vbo);
-        glBufferData(GL_ARRAY_BUFFER, vertexCount * sizeof * buffer, buffer, GL_STATIC_DRAW);
-
-        buffer->set_attrib_pointers();
-
-        delete [] buffer;
-
-        return glsuccess;
-    }
-
-    bool render() override {
-        if (modified)
-            mesh();
-
-        if (vertexCount < 1)
-            return glsuccess;
-
-        textProgram->use();
-        textProgram->set_f("mixFactor", 1.0);
-        glBindVertexArray(vao);
-        glDrawArrays(GL_TRIANGLES, 0, vertexCount);
-        glBindVertexArray(0);
-
-        ui_element_t::render();
-
-        return glsuccess;
-    }
 };
 
 struct kinematics_t {
@@ -1775,25 +1673,25 @@ int init() {
     auto toggle_add = glm::vec4{.110, 0, 0, 0};
 
     debugInfo->hidden = !debug_mode;
-    debugToggle = uiHandler->add_child(new ui_toggle_t(window, toggle_pos, "Debug", debug_mode, [](ui_toggle_t* ui, bool state){
+    debugToggle = uiHandler->add_child(new ui_toggle_t(window, textProgram, textTexture, toggle_pos, "Debug", debug_mode, [](ui_toggle_t* ui, bool state){
         debug_mode = state;
         debugInfo->hidden = !debug_mode;
     }));
-    resetToggle = debugInfo->add_child(new ui_toggle_t(window, toggle_pos += toggle_add, "Reset", false, [](ui_toggle_t *ui, bool state) {
+    resetToggle = debugInfo->add_child(new ui_toggle_t(window, textProgram, textTexture, toggle_pos += toggle_add, "Reset", false, [](ui_toggle_t *ui, bool state) {
         if (state)
             uiHandler->reset();
         reset();
     }));
-    interpolatedToggle = debugInfo->add_child(new ui_toggle_t(window, toggle_pos += toggle_add, "Intrp", model_interpolation, [](ui_toggle_t *ui, bool state){
+    interpolatedToggle = debugInfo->add_child(new ui_toggle_t(window, textProgram, textTexture, toggle_pos += toggle_add, "Intrp", model_interpolation, [](ui_toggle_t *ui, bool state){
         model_interpolation = state;
     }));
-    resetConnectionToggle = debugInfo->add_child(new ui_toggle_t(window, toggle_pos += toggle_add, "Conn", false, [](ui_toggle_t *ui, bool state) {
+    resetConnectionToggle = debugInfo->add_child(new ui_toggle_t(window, textProgram, textTexture, toggle_pos += toggle_add, "Conn", false, [](ui_toggle_t *ui, bool state) {
         if (state) {
             robot_interface->reset(1155, 22352);
             resetConnectionToggle->set_state(false);
         }
     }));
-    pedanticToggle = debugInfo->add_child(new ui_toggle_t(window, toggle_pos += toggle_add, "Verb", debug_pedantic, [](ui_toggle_t* ui, bool state){
+    pedanticToggle = debugInfo->add_child(new ui_toggle_t(window, textProgram, textTexture, toggle_pos += toggle_add, "Verb", debug_pedantic, [](ui_toggle_t* ui, bool state){
         debug_pedantic = state;
     }));
 

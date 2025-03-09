@@ -22,6 +22,7 @@
 #include "include/ui_text.h"
 #include "include/ui_slider.h"
 #include "include/ui_toggle.h"
+#include "include/frametime.h"
 
 struct shader_text_t;
 struct shader_materials_t;
@@ -55,6 +56,7 @@ ui_element_t *uiHandler, *ui_servo_sliders;
 kinematics_t *kinematics;
 joystick_t *joysticks;
 robot_interface_t *robot_interface;
+gui::frametime_t frametime;
 
 struct shader_materials_t : public shaderProgram_t {
     shader_materials_t(shaderProgram_t prg)
@@ -1523,8 +1525,8 @@ void update_debug_info() {
         debug_objects->add_sphere(robot_target, s3->model_scale);
 
         snprintf(char_buf, bufsize, 
-        "%.0lf FPS\nCamera %.2f %.2f %.2f\nFacing %.2f %.2f\nTarget %lf %lf %lf\ns3 %.2f %.2f %.2f\n%s%s%s",
-        fps, 
+        "%.0lf FPS %.2lf ms\nCamera %.2f %.2f %.2f\nFacing %.2f %.2f\nTarget %lf %lf %lf\ns3 %.2f %.2f %.2f\n%s%s%s",
+        frametime.get_fps(), frametime.get_ms(), 
         camera->position.x, camera->position.y, camera->position.z,
         camera->yaw,camera->pitch,
         robot_target.x, robot_target.y, robot_target.z,
@@ -1534,30 +1536,6 @@ void update_debug_info() {
         robot_interface->debug_info().c_str()
         );
         debugInfo->set_string(&char_buf[0]);
-    }
-}
-
-void calcFps() {
-    frameCount++;
-
-    double nowTime = glfwGetTime();
-    deltaTime = nowTime - lastTime;
-    lastTime = nowTime;
-
-    static auto now_time = hrc::now();
-    static auto diff_time = hrc::now();
-    diff_time = now_time;
-    now_time = hrc::now();
-    deltaTime = dur(now_time - diff_time).count();
-
-
-    end = hrc::now();
-    duration = end - start;
-
-    if (duration.count() >= 1.0) {
-        fps = frameCount / duration.count();
-        frameCount = 0;
-        start = hrc::now();
     }
 }
 
@@ -1593,8 +1571,6 @@ int init_context() {
     glfwGetWindowSize(window, &initial_window[2], &initial_window[3]);
 
     current_window = initial_window;
-
-    lastTime = glfwGetTime();
 
     signal(SIGQUIT, handle_signal);
     signal(SIGKILL, handle_signal);
@@ -1767,13 +1743,14 @@ int main() {
         handle_error("failed to load", glfail);
 
     while (!glfwWindowShouldClose(window)) {
-        calcFps();
-
         glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        handle_keyboard(window, deltaTime);
-        joysticks->update(deltaTime * 60.0);
+        frametime.update();
+        auto delta_time = frametime.get_delta_time<double>();
+
+        handle_keyboard(window, delta_time);
+        joysticks->update(delta_time * 60.0);
         robot_interface->update();
 
         mainProgram->use();

@@ -37,11 +37,6 @@ glm::mat4 viewport_inversion(1.);
 GLFWwindow *window;
 GLint uni_projection, uni_model, uni_norm, uni_view;
 vec3_d robot_target;
-tp start, end;
-dur duration;
-int frameCount = 0;
-double fps;
-double lastTime, deltaTime;
 glm::vec4 x_axis(1,0,0,0), y_axis(0,1,0,0), z_axis(0,0,1,0);
 
 void framebuffer_size_callback(GLFWwindow *window, int width, int height);

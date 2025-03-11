@@ -3,6 +3,7 @@
 in vec3 worldPos;
 in vec3 normal;
 in vec2 texCoord;
+in vec3 color;
 
 out vec4 FragColor;
 
@@ -36,8 +37,8 @@ void main() {
     float dotSky = max(dot(l_dir, normalize(normal)), 0.0);
     float dotView = pow(max(1-abs(dot(v_dir, l_dir)), 0.0), material.shininess);
 
-    vec3 diffuseColor = texture(material.diffuse, texCoord).rgb;
-    vec3 specularColor = texture(material.specular, texCoord).rgb;    
+    vec3 diffuseColor = texture(material.diffuse, texCoord).rgb + color;
+    vec3 specularColor = texture(material.specular, texCoord).rgb + color;    
     
     vec3 sDiffuse = light.diffuse * diffuseColor * dotSky;
     vec3 sAmbient = light.ambient * diffuseColor;

@@ -9,6 +9,7 @@
 struct vertex_t {
     glm::vec3 vertex, normal;
     glm::vec2 tex;
+    glm::vec3 color;
 };
 
 struct mesh_t {
@@ -198,11 +199,17 @@ shape count: %i\n",
                 if (material_id < 0 || material_id >= materials.size())
                     material_id = materials.size() - 1;
 
+                glm::vec3 color;
+                for (int i = 0; i < 3; i++) {
+                    color[i] = materials[material_id].diffuse[i];
+                }
+
                 vertex_t vnt[3];
 
                 for (int k = 0; k < 3; k++) {
                     glm::ivec3 vi, ni, ti;
 
+                    vnt[k].color = color;
                     for (int i = 0; i < 3; i++) {
                         vi[i] = is[i].vertex_index;
                         ni[i] = is[i].normal_index;
@@ -213,6 +220,7 @@ shape count: %i\n",
                         vert.normal[k] = norms[3 * ni[i] + k];
                         if (k < 2)
                             vert.tex[k] = texs[2 * ti[i] + k];
+
                     }
                 }
 
@@ -234,6 +242,7 @@ shape count: %i\n",
         size_t coordSize = sizeof verticies[0].vertex;
         size_t normSize = sizeof verticies[0].normal;
         size_t texSize = sizeof verticies[0].tex;
+        size_t colorSize = sizeof verticies[0].color;
 
         size_t stride = sizeof verticies[0];
 
@@ -254,6 +263,8 @@ shape count: %i\n",
         glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, (void*) (normSize));
         glEnableVertexAttribArray(2);
         glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, (void*) (normSize + texSize));
+        glEnableVertexAttribArray(3);
+        glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, stride, (void*) (normSize + texSize + colorSize));
 
         glBindVertexArray(0);
 

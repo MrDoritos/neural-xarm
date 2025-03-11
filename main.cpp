@@ -1704,7 +1704,7 @@ void reset() {
 }
 
 int load() {
-    if (mainTexture->generate(glm::vec4(0.0f,0.0f,1.0f,1.0f)) ||
+    if (mainTexture->generate(glm::vec4(0.0f,0.0f,0.0f,0.0f)) ||
         textTexture->load("assets/text.png"))
         handle_error("Failed to load textures");
 
@@ -1718,12 +1718,11 @@ textFragmentShader->load("shaders/text_fragment_shader.glsl"))
         textProgram->load()))
         handle_error("Failed to compile shaders");
 
-    if (sBase->load("assets/xarm-sbase.stl") ||
-        //s6->load("assets/xarm-s6.stl") ||
+    if (sBase->mesh->loadObj("assets/xarm-sbase.obj") ||
         s6->mesh->loadObj("assets/xarm-s6.obj") ||
-        s5->load("assets/xarm-s5.stl") ||
-        s4->load("assets/xarm-s4.stl") ||
-        s3->load("assets/xarm-s3.stl"))
+        s5->mesh->loadObj("assets/xarm-s5.obj") ||
+        s4->mesh->loadObj("assets/xarm-s4.obj") ||
+        s3->mesh->loadObj("assets/xarm-s3.obj"))
         handle_error("Failed to load models");
 
     reset();

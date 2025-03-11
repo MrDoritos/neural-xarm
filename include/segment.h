@@ -7,10 +7,11 @@ struct mesh_t;
 
 template<typename mesh_base = mesh_t>
 struct segment_T {
-    segment_T(segment_T *parent, mesh_base *mesh, glm::vec3 rotation_axis, glm::vec3 initial_direction, float length, int servo_num) {
+    segment_T() {}
+
+    segment_T(segment_T *parent, mesh_base *mesh, glm::vec3 rotation_axis, float length, int servo_num) {
         this->parent = parent;
         this->rotation_axis = rotation_axis;
-        this->initial_direction = initial_direction;
         this->length = length;
         this->servo_num = servo_num;
         this->rotation = 0.0f;
@@ -70,7 +71,7 @@ struct segment_T {
     }
 
     float model_scale = 0.1;
-    glm::vec3 direction, rotation_axis, initial_direction;
+    glm::vec3 rotation_axis;
     segment_T<> *parent;
     glm::vec3 debug_color;
     float length, rotation;

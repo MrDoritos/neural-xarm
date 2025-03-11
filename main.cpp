@@ -43,6 +43,7 @@ material_t *robotMaterial;
 camera_t *camera;
 segment_t *sBase, *s6, *s5, *s4, *s3, *s2, *s1;
 std::vector<segment_t*> segments;
+std::vector<segment_t*> visible_segments;
 std::vector<segment_t*> servo_segments;
 std::vector<mesh_t*> meshes;
 debug_object_t *debug_objects;
@@ -268,6 +269,8 @@ struct kinematics_t {
         auto isnot_real = [](float x){
             return (isinf(x) || isnan(x));
         };
+
+        auto &segments = visible_segments;
 
         bool calculation_failure = false;
 
@@ -1585,15 +1588,12 @@ int init() {
     for (int i = 0; i < 5; i++)
         meshes.push_back(new mesh_t);
 
-    sBase = new segment_t(nullptr, meshes[0], z_axis, z_axis, 46.19, 7);
-    s6 = new segment_t(sBase, meshes[1], z_axis, z_axis, 35.98, 6);
-    s5 = new segment_t(s6, meshes[2], y_axis, z_axis, 100.0, 5);
-    s4 = new segment_t(s5, meshes[3], y_axis, z_axis, 96.0, 4);
-    s3 = new segment_t(s4, meshes[4], y_axis, z_axis, 150.0, 3);
-    s2 = new segment_t(nullptr, nullptr, z_axis, z_axis, 0, 2);
-    s1 = new segment_t(nullptr, nullptr, z_axis, z_axis, 0, 1);
+    segment_t **s_pos[] = { &sBase, &s6, &s5, &s4, &s3, &s2, &s1 };
 
-    segments = std::vector<segment_t*>({sBase, s6, s5, s4, s3});
+    for (int i = 0; i < 7; i++)
+        segments.push_back(*s_pos[i] = new segment_t);
+
+    visible_segments = std::vector<segment_t*>({sBase, s6, s5, s4, s3});
     servo_segments = std::vector<segment_t*>({s6, s5, s4, s3, s2, s1});
     servo_sliders = std::vector({slider6, slider5, slider4, slider3, slider2, slider1});
     kinematics = new kinematics_t();
@@ -1640,9 +1640,22 @@ textFragmentShader->load("shaders/text_fragment_shader.glsl"))
         "assets/xarm-s3.obj"
     };
 
+    segment_t segment_vals[7] = {
+        {nullptr, meshes[0], z_axis, 46.19, 7},
+        {sBase, meshes[1], z_axis, 35.98, 6},
+        {s6, meshes[2], y_axis, 100.0, 5},
+        {s5, meshes[3], y_axis, 96.0, 4},
+        {s4, meshes[4], y_axis, 150.0, 3},
+        {nullptr, nullptr, z_axis, 0, 2},
+        {nullptr, nullptr, z_axis, 0, 1}
+    };
+
     for (int i = 0; i < sizeof mesh_locs / sizeof mesh_locs[0]; i++)
         if (meshes[i]->loadObj(mesh_locs[i]))
             handle_error((std::string("Failed to load model: ") + mesh_locs[i]).c_str());
+
+    for (int i = 0; i < sizeof segment_vals / sizeof segment_vals[0]; i++)
+        new (segments[i]) segment_t(segment_vals[i]);
 
     reset();
     uiHandler->load();
@@ -1687,7 +1700,7 @@ int main() {
 
         mainProgram->set_material(robotMaterial);
 
-        render::render_segments(segments, mainProgram, camera);
+        render::render_segments(visible_segments, mainProgram, camera);
 
         if (debug_mode)
             debug_objects->render();    

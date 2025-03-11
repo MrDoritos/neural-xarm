@@ -3,24 +3,18 @@
 #include "common.h"
 #include "util.h"
 
-template<typename mesh_base>
+struct mesh_t;
+
+template<typename mesh_base = mesh_t>
 struct segment_T {
-    segment_T(segment_T *parent, glm::vec3 rotation_axis, glm::vec3 initial_direction, float length, int servo_num) {
+    segment_T(segment_T *parent, mesh_base *mesh, glm::vec3 rotation_axis, glm::vec3 initial_direction, float length, int servo_num) {
         this->parent = parent;
         this->rotation_axis = rotation_axis;
         this->initial_direction = initial_direction;
         this->length = length;
         this->servo_num = servo_num;
         this->rotation = 0.0f;
-        this->mesh = new mesh_base();
-    }
-
-    ~segment_T() {
-        if (this->mesh) {
-            ~this->mesh();
-            delete this->mesh;
-        }
-        this->mesh = nullptr;
+        this->mesh = mesh;
     }
 
     constexpr inline float get_clamped_rotation(const bool &allow_interpolate = false) const {
@@ -75,53 +69,27 @@ struct segment_T {
         return parent->get_segment_vector(allow_interpolate) + parent->get_origin(allow_interpolate);
     }
 
-    void renderVector(glm::vec3 origin, glm::vec3 end) {
-        debug_objects->add_line(origin, end);
-    }
-
-    void renderMatrix(glm::vec3 origin, glm::mat4 mat) {
-        glm::vec4 m = glm::vec4(origin.x, origin.y, origin.z, 0);
-
-        renderVector(origin, m + mat[0]);
-        renderVector(origin, m + mat[1]);
-        renderVector(origin, m + mat[2]);
-    }
-
-    void renderDebug() {
-        glm::vec3 origin = get_origin();
-        debug_objects->add_sphere(origin, model_scale);
-        debug_objects->add_sphere(origin + get_segment_vector(), model_scale);
-        renderVector(origin, origin + get_segment_vector());
-
-        auto rot_mat = get_rotation_matrix();
-        auto tran_rot_mat = glm::translate(rot_mat, origin);
-
-        renderMatrix(origin, tran_rot_mat);
-    }
-
-    void render() {
-        mainProgram->use();
-        mainProgram->set_camera(camera, glm::mat4(1.0f));
-        if (debug_mode)
-            renderDebug();
-        mainProgram->set_camera(camera, get_model_transform());
-        if (debug_pedantic)
-            mainProgram->set_v3("light.ambient", debug_color);
-        mesh->render();
-    }
-
-    virtual bool load(const char *path) {
-        assert(mesh && "Mesh null");
-        return mesh->load(path);
-    }
-
     float model_scale = 0.1;
     glm::vec3 direction, rotation_axis, initial_direction;
-    segment_t *parent;
+    segment_T<> *parent;
     glm::vec3 debug_color;
     float length, rotation;
     int servo_num;
-    mesh_t *mesh;
+    mesh_base *mesh;
 };
 
-using segment_t = segment_T<>;
+template<>
+inline float segment_T<>::get_rotation(const bool &allow_interpolate) const {
+    /*
+    if (model_interpolation && allow_interpolate) {
+        auto &rb = robot_interface->robot_servos;
+        if (rb.contains(servo_num)) {
+            auto &rs = rb[servo_num];
+            return rs.get_deg<float>(rs.get_interpolated_pos<float>());
+        }
+    }
+    */
+    return rotation;
+}
+
+using segment_t = segment_T<mesh_t>;

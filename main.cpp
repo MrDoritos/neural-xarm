@@ -44,6 +44,7 @@ camera_t *camera;
 segment_t *sBase, *s6, *s5, *s4, *s3, *s2, *s1;
 std::vector<segment_t*> segments;
 std::vector<segment_t*> servo_segments;
+std::vector<mesh_t*> meshes;
 debug_object_t *debug_objects;
 ui_text_t *debugInfo;
 ui_toggle_t *debugToggle, *interpolatedToggle, *resetToggle, *resetConnectionToggle, *pedanticToggle;
@@ -217,9 +218,48 @@ struct robot_t {
 };
 
 namespace render {
-    template<typename T>
-    void render_segments(const std::vector<T*> &segments) {
-        
+    void render_vector(debug_object_t *debug_objects, glm::vec3 origin, glm::vec3 end) {
+        debug_objects->add_line(origin, end);
+    }
+
+    void render_matrix(debug_object_t *debug_objects, glm::vec3 origin, glm::mat4 mat) {
+        auto m = glm::vec4(origin[0], origin[1], origin[2], 0);
+
+        for (int i  = 0; i < 3; i++)
+            render_vector(debug_objects, origin, m + mat[i]);
+    }
+
+    template<typename T = segment_t>
+    void render_segment_debug(const T* segment, debug_object_t *debug_objects) {
+        auto origin = segment->get_origin();
+        debug_objects->add_sphere(origin, segment->model_scale);
+        debug_objects->add_sphere(origin + segment->get_segment_vector(), segment->model_scale);
+        render_vector(debug_objects, origin, origin + segment->get_segment_vector());
+
+        auto rot_mat = segment->get_rotation_matrix();
+        auto tran_rot_mat = glm::translate(rot_mat, origin);
+
+        render_matrix(debug_objects, origin, tran_rot_mat);
+    }
+
+    template<typename T = segment_t>
+    void render_segment(const T* segment, shaderProgram_t *program, camera_t *camera) {
+        if (debug_mode) {
+            program->set_camera(camera, glm::mat4(1.0f));
+            render_segment_debug(segment, debug_objects);
+        }
+        program->set_camera(camera, segment->get_model_transform());
+        if (debug_pedantic) {
+            program->set_v3("light.ambient", segment->debug_color);
+        }
+        segment->mesh->render();
+    }
+
+    template<typename T = segment_t>
+    void render_segments(const std::vector<T*> &segments, shaderProgram_t *program, camera_t *camera) {
+        program->use();
+        for (T* segment : segments)
+            render_segment(segment, program, camera);
     }
 }
 
@@ -1290,18 +1330,6 @@ void joystick_t::connect_robot() {
     set_segments_from_robot();
 }
 
-template<>
-inline float segment_T<>::get_rotation(const bool &allow_interpolate) const {
-    if (model_interpolation && allow_interpolate) {
-        auto &rb = robot_interface->robot_servos;
-        if (rb.contains(servo_num)) {
-            auto &rs = rb[servo_num];
-            return rs.get_deg<float>(rs.get_interpolated_pos<float>());
-        }
-    }
-    return rotation;
-}
-
 void set_segments_from_sliders() {
     for (int i = 0; i < servo_sliders.size() && i < servo_segments.size(); i++)
         servo_segments[i]->rotation = servo_sliders[i]->value;
@@ -1554,13 +1582,16 @@ int init() {
         debug_pedantic = state;
     }));
 
-    sBase = new segment_t(nullptr, z_axis, z_axis, 46.19, 7);
-    s6 = new segment_t(sBase, z_axis, z_axis, 35.98, 6);
-    s5 = new segment_t(s6, y_axis, z_axis, 100.0, 5);
-    s4 = new segment_t(s5, y_axis, z_axis, 96.0, 4);
-    s3 = new segment_t(s4, y_axis, z_axis, 150.0, 3);
-    s2 = new segment_t(nullptr, z_axis, z_axis, 0, 2);
-    s1 = new segment_t(nullptr, z_axis, z_axis, 0, 1);
+    for (int i = 0; i < 5; i++)
+        meshes.push_back(new mesh_t);
+
+    sBase = new segment_t(nullptr, meshes[0], z_axis, z_axis, 46.19, 7);
+    s6 = new segment_t(sBase, meshes[1], z_axis, z_axis, 35.98, 6);
+    s5 = new segment_t(s6, meshes[2], y_axis, z_axis, 100.0, 5);
+    s4 = new segment_t(s5, meshes[3], y_axis, z_axis, 96.0, 4);
+    s3 = new segment_t(s4, meshes[4], y_axis, z_axis, 150.0, 3);
+    s2 = new segment_t(nullptr, nullptr, z_axis, z_axis, 0, 2);
+    s1 = new segment_t(nullptr, nullptr, z_axis, z_axis, 0, 1);
 
     segments = std::vector<segment_t*>({sBase, s6, s5, s4, s3});
     servo_segments = std::vector<segment_t*>({s6, s5, s4, s3, s2, s1});
@@ -1601,12 +1632,17 @@ textFragmentShader->load("shaders/text_fragment_shader.glsl"))
         textProgram->load()))
         handle_error("Failed to compile shaders");
 
-    if (sBase->mesh->loadObj("assets/xarm-sbase.obj") ||
-        s6->mesh->loadObj("assets/xarm-s6.obj") ||
-        s5->mesh->loadObj("assets/xarm-s5.obj") ||
-        s4->mesh->loadObj("assets/xarm-s4.obj") ||
-        s3->mesh->loadObj("assets/xarm-s3.obj"))
-        handle_error("Failed to load models");
+    const char *mesh_locs[5] = {
+        "assets/xarm-sbase.obj",
+        "assets/xarm-s6.obj",
+        "assets/xarm-s5.obj",
+        "assets/xarm-s4.obj",
+        "assets/xarm-s3.obj"
+    };
+
+    for (int i = 0; i < sizeof mesh_locs / sizeof mesh_locs[0]; i++)
+        if (meshes[i]->loadObj(mesh_locs[i]))
+            handle_error((std::string("Failed to load model: ") + mesh_locs[i]).c_str());
 
     reset();
     uiHandler->load();
@@ -1651,8 +1687,7 @@ int main() {
 
         mainProgram->set_material(robotMaterial);
 
-        for (auto *segment : segments)
-            segment->render();
+        render::render_segments(segments, mainProgram, camera);
 
         if (debug_mode)
             debug_objects->render();    

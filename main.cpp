@@ -178,6 +178,101 @@ struct debug_object_t : public mesh_t {
     }    
 };
 
+namespace util {
+    template<typename T = float, typename vec = glm::vec<3, T>, typename mat = glm::mat<4, 4, T>>
+    constexpr inline vec matrix_to_vector(const mat &m) {
+        return glm::normalize(vec(m[2]));
+    }
+    
+    template<typename T = float, typename vec = glm::vec<3, T>, typename mat = glm::mat<4, 4, T>>
+    constexpr inline mat vector_to_matrix(const vec &v) {
+        using vec4 = glm::vec<4, T>;
+
+        const vec4 h_coords = vec4(v[0], v[1], v[2], T(1));
+        const mat h_matrix = mat(h_coords, h_coords, h_coords, h_coords);
+
+        return mat(T(1)) * h_matrix;        
+    }
+    
+    template<typename T = float, typename vec = glm::vec<3, T>>
+    constexpr inline vec rotate_vector_3d(const vec &v, const vec &axis, const T &degrees) {
+        const T radians = glm::radians(degrees);
+        using mat = glm::mat<4, 4, T>;
+
+        const mat matrix = util::vector_to_matrix(v);
+        const mat rotated = glm::rotate(matrix, radians, axis);
+
+        return util::matrix_to_vector(rotated);
+    }
+
+    template<typename T = float, typename vec = glm::vec<3, T>>
+    constexpr inline vec map_to_xy(const vec &pos, const T &degrees = T(0), const vec &axis = vec(T(0)), const vec &origin = vec(T(0)), const vec &translate = vec(T(0))) {
+        const T radians = glm::radians(degrees);
+
+        auto matrix = glm::mat<4, 4, T>(T(1));
+        matrix = glm::rotate<T>(matrix, radians, axis);
+        auto _pos = pos - origin;
+
+        return vec(matrix * glm::vec<4, T>(_pos[0], _pos[1], _pos[2], T(1))) + translate;
+    }
+
+    template<typename T = float, typename T2 = T, typename T3 = T>
+    constexpr inline T clamp(const T &v, const T2 &min, const T3 &max) {
+        T ret = v;
+        const T r = max - min;
+        while (ret < min) ret += r;
+        while (ret > max) ret -= r;
+        return ret;
+    }
+
+    template<typename T = float, typename T2 = T, typename T3 = T>
+    constexpr inline T clip(const T &v, const T2 &min, const T3 &max) {
+        T ret = v;
+        if (ret < min) ret = min;
+        if (ret > max) ret = max;
+        return ret;
+    }
+}
+
+struct robot_segment_t {
+    int servo_num;
+
+    //robot_servo
+    float rotation, degrees_per_second, target_rotation;
+    tp last_command;
+
+    float to_degrees(float);
+    float to_servo(float);
+    float set_servo_degrees(float);
+    float get_servo_degrees();
+    float get_servo_interpolated();
+    float get_servo_interpolated_degrees();
+    void set_servo(float);
+    float get_servo_bound(float);
+    float get_servo();
+    float get_degrees_per_second();
+    float get_elapsed_time();
+    bool movement_complete();
+
+    //segment_t
+    robot_segment_t *parent;
+    float scale, length;
+    glm::vec3 direction, rotation_axis;
+    mesh_t *mesh;
+
+    float get_length();
+    glm::vec3 get_origin();
+    glm::mat4 get_rotation_matrix();
+    glm::mat4 get_model_transform();
+    //get_rotation() -> get_servo_degrees()
+    void render();
+    bool load();
+};
+
+struct robot_t {
+    std::vector<robot_segment_t> segments;
+};
+
 template<typename mesh_base>
 struct segment_T {
     segment_T(segment_T *parent, glm::vec3 rotation_axis, glm::vec3 initial_direction, float length, int servo_num) {
@@ -198,47 +293,14 @@ struct segment_T {
         this->mesh = nullptr;
     }
 
-    static glm::vec3 matrix_to_vector(glm::mat4 mat) {
-        return glm::normalize(glm::vec3(mat[2]));
-    }
-
-    static inline constexpr float clamp(const float &v, const float &min, const float &max) {
-        float ret = v;
-        const float r = max - min;
-        while (ret < min) ret += r;
-        while (ret > max) ret -= r;
-        return ret;
-    }
-
-    static inline constexpr float clip(const float &v, const float &min, const float &max) {
-        float ret = v;
-        if (ret < min)
-            ret = min;
-        if (ret > max)
-            ret = max;
-        return ret;
-    }
-
-    inline float get_clamped_rotation(bool allow_interpolate = false) {
-        return clamp(allow_interpolate ? get_rotation() : rotation, -180, 180);
+    constexpr inline float get_clamped_rotation(const bool &allow_interpolate = false) {
+        return util::clamp(allow_interpolate ? get_rotation() : rotation, -180, 180);
     }
 
     inline float get_rotation(bool allow_interpolate = true);
 
     float get_length() {
         return length * model_scale;
-    }
-
-    static glm::mat4 vector_to_matrix(glm::vec3 vec) {
-        glm::vec4 hyp_vec = glm::vec4(vec.x, vec.y, vec.z, 1.0f);
-        return glm::mat4(1.0f) * glm::mat4(hyp_vec,hyp_vec,hyp_vec,hyp_vec);
-    }
-
-    static glm::vec3 rotate_vector_3d(glm::vec3 vec, glm::vec3 axis, float degrees) {
-        float radians = glm::radians(degrees);
-        glm::mat4 rtn_matrix = vector_to_matrix(vec);
-
-        return matrix_to_vector(glm::rotate(rtn_matrix, radians, axis));
     }
 
     glm::mat4 get_rotation_matrix(bool allow_interpolate = true) {
@@ -260,7 +322,7 @@ struct segment_T {
     }
 
     glm::vec3 get_segment_vector(bool allow_interpolate = true) {
-        return matrix_to_vector(get_rotation_matrix(allow_interpolate)) * get_length();
+        return util::matrix_to_vector(get_rotation_matrix(allow_interpolate)) * get_length();
     }
 
     glm::vec3 get_origin(bool allow_interpolate = true) {
@@ -333,14 +395,6 @@ struct segment_T {
 };
 
 struct kinematics_t {
-    static glm::vec3 map_to_xy(glm::vec3 pos, float r = 0.0f, glm::vec3 a = -z_axis, glm::vec3 o = glm::vec3(0.0f), glm::vec3 t = glm::vec3(0.0f)) {
-        auto matrix = glm::mat4(1.0);
-        matrix = glm::rotate(matrix, glm::radians(r), a);
-        auto _pos = pos - o;
-
-        return glm::vec3(matrix * glm::vec4(_pos.x,_pos.y,_pos.z,1)) + t;
-    }
-
     bool solve_inverse(vec3_d coordsIn) {
         auto isnot_real = [](float x){
             return (isinf(x) || isnan(x));
@@ -372,7 +426,7 @@ struct kinematics_t {
         glm::vec3 seg_5_real = glm::vec3(seg_5.x, seg_5.z, seg_5.y);
         glm::vec3 target_for_calc = target_coords;
 
-        auto target_pl3d = map_to_xy(target_for_calc, deg_6, y_axis, seg_5);
+        auto target_pl3d = util::map_to_xy<float>(target_for_calc, deg_6, glm::vec3(y_axis), seg_5);
         auto target_pl2d = glm::vec2(target_pl3d.x, target_pl3d.y);
         auto plo3d = glm::vec3(0.0f);
         auto plo2d = glm::vec2(0.0f);
@@ -812,8 +866,8 @@ struct joystick_t {
                     s1->rotation -= ndd.y * deltaTime;
                     s1->rotation += ndd.z * deltaTime;
 
-                    s2->rotation = s2->clip(s2->rotation, -120, 120); // because we can't check robot_interface unless refactor, works for now
-                    s1->rotation = s1->clip(s1->rotation, -50, 50);
+                    s2->rotation = util::clip(s2->rotation, -120, 120); // because we can't check robot_interface unless refactor, works for now
+                    s1->rotation = util::clip(s1->rotation, -50, 50);
                 }
             }
         }

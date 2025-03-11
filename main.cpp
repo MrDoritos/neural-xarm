@@ -920,82 +920,99 @@ struct robot_interface_t {
     using tp = std::chrono::time_point<clk>;
     using dur = std::chrono::duration<long, std::milli>;
 
-    struct robot_servo {
-        robot_servo() {}
-        robot_servo(int id, int min, int max, int home, int pos, int real_pos, float deg_per_second, float int_per_deg)
-        :id(id),min(min),max(max),pos(pos),
-        real_pos(real_pos),deg_per_second(deg_per_second),
-        home(home),last_cmd(clk::now()),int_per_deg(int_per_deg) { }
-        int id, min, max, home;
-        // robot's real position based off a query or time-based movement interpolation
-        int real_pos;
-        // robot's target position, if set without last_cmd, will jerk the robot
-        int pos;
-        float int_per_deg, deg_per_second;
-        // last time a movement was sent to the robot
-        tp last_cmd;
-        int min_time = 20;
-        int min_diff = 1;
+    template<typename RB, 
+             typename PERIOD_T = int,
+             typename SERVO_T = RB::servo_type,
+             typename VT_T = RB::value_type,
+             typename RB_TP = RB::tp,
+             typename PAIR_T = std::pair<SERVO_T,SERVO_T>>
+        requires std::is_base_of_v<robot_servo_T<SERVO_T, VT_T>, RB>
+    bool get_servo_command(RB *servo, PERIOD_T &r_period, RB_TP &batch_time, PAIR_T &cmd) {
+        auto targetf = servo->get_clamped_rotation();
+        auto targeti = servo->to_servo(targetf);
+        auto servo_min = servo->servo_min;
+        auto servo_max = servo->servo_max;
+        auto initialp = servo->get_servo_start();
+        auto initialpf = servo->to_degrees(initialp);
+        auto intrp = servo->get_servo_interpolated();
 
-        template<typename T = int, typename RET = float>
-        RET get_deg(T v) {
-            return RET(v - home) * int_per_deg;
+        if (targeti < servo_min || targeti > servo_max)
+            targeti = util::clip(targeti, servo_min, servo_max);
+
+        auto dist = targeti - intrp;
+
+        servo->last_command = batch_time;
+
+        if (abs(dist) < servo->min_command_threshold && abs(dist) < 1) {
+            servo->servo_end_position = targeti;
+            servo->servo_cur_position = targeti;
+            return false;
         }
 
-        template<typename T = float, typename RET = int>
-        RET get_int(T v) {
-            return RET(v * (1.0 / int_per_deg)) + home;
+        auto mv = (r_period/1000.0) * servo->degrees_per_second;
+        auto mvdist = servo->servo_cur_position - intrp;
+        auto accel = mvdist / mv;
+        auto jerk = (mvdist * mv) / mv;
+        auto rintrp = intrp;
+
+        if (abs(jerk) > mv / 2 && abs(mvdist) > 0) {
+            intrp += (mvdist * .5);
+        } else
+        if (abs(dist) < mv / 2 && abs(jerk) < mv / 4) {
+            intrp = targeti;
+            if (debug_mode)
+                fprintf(stderr, "Force set targeti\n");
         }
 
-        template<typename RET = int>
-        RET get_elapsed_time() {
-            using _dur = std::chrono::duration<RET>;
-            return (RET)std::chrono::duration_cast<_dur>(clk::now() - last_cmd).count();
-        }
+        servo->servo_end_position = targeti;
+        servo->servo_cur_position = intrp;
 
-        template<typename T = int>
-        T get_interpolated_pos(bool debug = false) {
-            T d = pos - real_pos;
+        if (debug_mode)
+            fprintf(stderr, "Send constant time s%i (%i/initialp -> %i/rintrp (jerk comp %i/intrp)) (%i/mvdist) (%i/targeti %.2f/targetf : %.2f/initialpf) = %i/dist (%i r_period/ms %.2lf mv/intpersec) accel %.2f jerk %.2f\n", servo->servo_num, initialp, rintrp, intrp, mvdist, targeti, targetf, initialpf, dist, r_period, mv, accel, jerk);
 
-            if (abs(d) < min_diff)
-                return pos;
+        cmd = { servo->servo_num, intrp };
 
-            using _dur = std::chrono::duration<float>;
-            auto t = std::chrono::duration_cast<_dur>(clk::now() - last_cmd);
-
-            T md = t.count() * deg_per_second;
-            T dir = d > 0 ? 1 : -1;
-            T intp = dir * md;
-
-            if (debug && debug_pedantic) {
-                if (std::is_same_v<int, T>) {
-                    fprintf(stderr, "gip id:%i t:%f d:%i md:%i dir:%i pos:%i intp:%i intp + real_pos:%i\n", (int)id, t.count(), (int)d, (int)md, (int)dir, (int)pos, (int)intp, (int)(intp + real_pos));
-                }
-            }
-
-            if (abs(intp) > abs(d))
-                return pos;
-
-            return intp + real_pos;
-        }
-
-        bool ready_for_command() {
-            return get_elapsed_time() > min_time && get_interpolated_pos() == pos;
-        }
-
-        void set_pos(int v) {
-            last_cmd = clk::now();
-            real_pos = pos;
-            pos = v;
-        }
-    };
-
-    std::map<int, robot_servo> robot_servos;
+        return true;
+    }
 
     void update() {
         if (!handle && !virtual_output)
             return;
 
+        using sv_t = segment_t::servo_type;
+        using tp_t = segment_t::tp;
+        using clk_t = segment_t::clk;
+        using pair_t = std::pair<sv_t, sv_t>;
+
+        static tp_t last_batch = clk_t::now();
+        tp now_batch = clk_t::now();
+
+        static bool constant_speed = false;
+        static int u_period = 10;
+        static int m_period = 200;
+        static int t_overlap = 0;
+        int r_period = int(std::chrono::duration_cast<dur>(now_batch - last_batch).count()) + t_overlap;
+
+        if (!constant_speed && r_period < u_period)
+            return;
+
+        if (!constant_speed && r_period > m_period)
+            r_period = m_period;
+
+        std::vector<pair_t> cmds;
+
+        for (auto *sv : servo_segments) {
+            pair_t p;
+            if (get_servo_command(sv, r_period, now_batch, p))
+                cmds.push_back(p);
+        }
+
+        if (cmds.size() > 0) {
+            set_servos(cmds, r_period);
+            last_batch = now_batch;
+        }
+
+        /*
         assert(robot_servos.size() < 7 && "Need servos to update\n");
 
         std::vector<std::pair<int,int>> cmds;
@@ -1104,6 +1121,7 @@ struct robot_interface_t {
         //    set_servos(cmds, 1000);
         //for (auto &cmd : cmds)
             //set_servos({cmd}, 1000);
+        */
     }
 
     robot_interface_t(bool permit_virtual = false):virtual_output(permit_virtual) {
@@ -1148,17 +1166,19 @@ struct robot_interface_t {
 
         count = ret[4];
 
-        auto now_time = clk::now();
+        auto now_time = segment_t::clk::now();
         for (int i = 0; i < count; i++) {
+            auto *seg = servo_segments[i];
             int index = 5 + 3 * i;
             int id = ret[index];
             int pos = (ret[index + 2] << 8) | ret[index + 1];
-            robot_servos[id].real_pos = (unsigned short)(pos);
+            unsigned short upos = (unsigned short)pos;
+            seg->servo_cur_position = upos;
             if (set_pos)
-                robot_servos[id].pos = (unsigned short)(pos);
-            robot_servos[id].last_cmd = now_time;
+                seg->servo_end_position = upos;
+            seg->last_command = now_time;
             if (debug_pedantic)
-                fprintf(stderr, "s%i r%i p%i\n", id, robot_servos[id].real_pos, robot_servos[id].pos);
+                fprintf(stderr, "s%i r%i p%i\n", id, seg->servo_cur_position, seg->servo_end_position);
         }
     }
 
@@ -1211,32 +1231,6 @@ struct robot_interface_t {
     }
 
     void set_robot_defaults() {
-        /*
-        https://github.com/migsdigs/Hiwonder_xArm_ESP32
-        1: 0.39 sec/60deg, 160 deg - or (60*375/90/0.39) = 641.03/s
-        6-2: 0.22 sec/60deg, 240 deg - or (60*375/90/0.22) = 1136.4/s
-        */
-
-        int dmin = 200;
-        int dmax = 800;
-        int dhome = 500;
-        int dpos = 500;
-        int drp = 500;
-        //float dconv = 90.0f / 375.0f;
-        float dconv = 240.0f / 1000.0f; //from spec
-        float dps = 500.0f;
-        robot_servo servos[6] = {
-            { 1, 200, 850, dhome, dpos, drp, 641.0f, dconv }, // gripper
-            { 2, 0, 925, dhome, dpos, drp, 700.0f, dconv }, // wrist
-            { 3, 38, 1000, dhome, dpos, drp, 700.0f, dconv }, // 3
-            { 4, 0, 1042, 502, dpos, drp, 700.0f, -dconv }, // 4 (inverted)
-            { 5, 148, 882, 505, dpos, drp, 700.0f, dconv }, // 5
-            { 6, 0, 1146, 482, dpos, drp, 700.0f, dconv }  // base
-        };
-
-        for (int i = 0; i < 6; i++)
-            robot_servos.insert({servos[i].id, servos[i]});
-
         if (!handle && virtual_output)
             serial_number = "Virtual Robot";
     }
@@ -1284,7 +1278,6 @@ struct robot_interface_t {
     void close() {
         if (!handle)
             return;
-        robot_servos.clear();
         hid_close(handle);
         handle = nullptr;
     }
@@ -1297,8 +1290,8 @@ struct robot_interface_t {
     std::string debug_info() {
         std::string ret;
         ret += std::format("USB: {}\n", serial_number);
-        for (auto &rs : robot_servos) {
-            ret += std::format("  {}: {}\n", rs.second.id, rs.second.real_pos);
+        for (auto *seg : servo_segments) {
+            ret += std::format("  {}: {}\n", seg->servo_num, seg->servo_cur_position);
         }
         return ret;
     }
@@ -1306,9 +1299,8 @@ struct robot_interface_t {
 
 void joystick_t::query_robot() {
     robot_interface->read_all();
-    for (auto &rs_kv : robot_interface->robot_servos) {
-        auto &rs = rs_kv.second;
-        fprintf(stderr, "%i: %i (%.2f deg), ", rs.id, rs.real_pos, rs.get_deg(rs.real_pos));
+    for (auto *seg : servo_segments) {
+        fprintf(stderr, "%i: %i (%.2f deg), ", seg->servo_num, seg->servo_cur_position, seg->to_degrees(seg->servo_cur_position));
     }
     fputs("\n", stderr);
 }
@@ -1391,10 +1383,7 @@ void set_segments_from_robot() {
     for (int i = 0; i < servo_sliders.size() && i < servo_segments.size(); i++) {
         auto *sg = servo_segments[i];
         auto *ui = servo_sliders[i];
-        auto &rs = robot_interface->robot_servos[sg->servo_num];
-        float intrp = rs.get_interpolated_pos<float>();
-        //sg->rotation = rs.get_deg<float>(intrp);
-        sg->set_rotation(rs.get_deg<float>(intrp));
+        sg->set_rotation(sg->get_servo_interpolated_degrees());
         ui->set_value(sg->get_clamped_rotation(), false);
         if (debug_pedantic)
             fprintf(stderr, "%i -> %s (%f -> %f)\n", sg->servo_num, ui->title_cached.c_str(), sg->get_rotation(false), sg->get_clamped_rotation());
@@ -1406,35 +1395,22 @@ void set_segments_from_robot() {
 void set_robot_from_segments() {
     for (int i = 0; i < servo_sliders.size(); i++) {
         auto *sg = servo_segments[i];
-        auto &rv = robot_interface->robot_servos;
-        if (!rv.contains(sg->servo_num))
-            continue;
-        
-        auto &rs = rv[sg->servo_num];
-        rs.set_pos(rs.get_int(sg->get_rotation(false)));
+        sg->set_servo(sg->get_servo_interpolated());
     }
 }
 
 std::string segment_debug_info() {
     std::string ret = "Rotation\n";
 
-    auto &rs = robot_interface->robot_servos;
-
     auto get_segment = [&](segment_t *seg) {
         float cv = seg->get_clamped_rotation();
-        if (rs.contains(seg->servo_num)) {
-            auto &rv = rs[seg->servo_num];
-            return std::format("  {}: {}  {}\n", seg->servo_num, cv, rv.get_int<float, float>(cv));
-        }
-        return std::format("  {}: {}\n", seg->servo_num, cv);
+        return std::format("  {}: {}  {}\n", seg->servo_num, cv, seg->to_servo(cv));
     };
 
-    return ret + get_segment(s1) +
-                 get_segment(s2) +
-                 get_segment(s3) +
-                 get_segment(s4) +
-                 get_segment(s5) +
-                 get_segment(s6);
+    for (auto *seg : servo_segments)
+        ret += get_segment(seg);
+
+    return ret;
 }
 
 void update_debug_info() {

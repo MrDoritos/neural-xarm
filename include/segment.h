@@ -29,6 +29,8 @@ struct robot_servo_T {
     }
 
     using dur_type = long;
+    using servo_type = SERVO_T;
+    using value_type = T;
     using clk = std::chrono::high_resolution_clock;
     using tp = std::chrono::time_point<clk>;
     using dur = std::chrono::duration<dur_type, std::milli>;
@@ -75,7 +77,7 @@ struct robot_servo_T {
 
     template<typename VT = T>
     void set_servo_degrees(const VT &v) {
-        set_servo(to_servo(v));
+        set_servo(to_servo(v) + servo_home);
     }
 
     inline SERVO_T get_servo() const {
@@ -84,7 +86,7 @@ struct robot_servo_T {
 
     template<typename RET = T>
     inline RET get_servo_degrees() const {
-        return to_degrees<RET>(get_servo());
+        return to_degrees<RET>(get_servo() - servo_home);
     }
 
     template<typename RET = SERVO_T>
@@ -109,6 +111,10 @@ struct robot_servo_T {
     template<typename RET = T>
     inline RET get_servo_interpolated_degrees() const {
         return to_degrees<RET>(get_servo_interpolated<RET>());
+    }
+
+    inline SERVO_T get_servo_start() const {
+        return servo_cur_position;
     }
 };
 

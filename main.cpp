@@ -23,6 +23,7 @@
 #include "include/ui_slider.h"
 #include "include/ui_toggle.h"
 #include "include/frametime.h"
+#include "include/util.h"
 
 struct shader_text_t;
 struct shader_materials_t;
@@ -178,64 +179,9 @@ struct debug_object_t : public mesh_t {
     }    
 };
 
-namespace util {
-    template<typename T = float, typename vec = glm::vec<3, T>, typename mat = glm::mat<4, 4, T>>
-    constexpr inline vec matrix_to_vector(const mat &m) {
-        return glm::normalize(vec(m[2]));
-    }
-    
-    template<typename T = float, typename vec = glm::vec<3, T>, typename mat = glm::mat<4, 4, T>>
-    constexpr inline mat vector_to_matrix(const vec &v) {
-        using vec4 = glm::vec<4, T>;
-
-        const vec4 h_coords = vec4(v[0], v[1], v[2], T(1));
-        const mat h_matrix = mat(h_coords, h_coords, h_coords, h_coords);
-
-        return mat(T(1)) * h_matrix;        
-    }
-    
-    template<typename T = float, typename vec = glm::vec<3, T>>
-    constexpr inline vec rotate_vector_3d(const vec &v, const vec &axis, const T &degrees) {
-        const T radians = glm::radians(degrees);
-        using mat = glm::mat<4, 4, T>;
-
-        const mat matrix = util::vector_to_matrix(v);
-        const mat rotated = glm::rotate(matrix, radians, axis);
-
-        return util::matrix_to_vector(rotated);
-    }
-
-    template<typename T = float, typename vec = glm::vec<3, T>>
-    constexpr inline vec map_to_xy(const vec &pos, const T &degrees = T(0), const vec &axis = vec(T(0)), const vec &origin = vec(T(0)), const vec &translate = vec(T(0))) {
-        const T radians = glm::radians(degrees);
-
-        auto matrix = glm::mat<4, 4, T>(T(1));
-        matrix = glm::rotate<T>(matrix, radians, axis);
-        auto _pos = pos - origin;
-
-        return vec(matrix * glm::vec<4, T>(_pos[0], _pos[1], _pos[2], T(1))) + translate;
-    }
-
-    template<typename T = float, typename T2 = T, typename T3 = T>
-    constexpr inline T clamp(const T &v, const T2 &min, const T3 &max) {
-        T ret = v;
-        const T r = max - min;
-        while (ret < min) ret += r;
-        while (ret > max) ret -= r;
-        return ret;
-    }
-
-    template<typename T = float, typename T2 = T, typename T3 = T>
-    constexpr inline T clip(const T &v, const T2 &min, const T3 &max) {
-        T ret = v;
-        if (ret < min) ret = min;
-        if (ret > max) ret = max;
-        return ret;
-    }
-}
-
 struct robot_segment_t {
     int servo_num;
+    float mass;
 
     //robot_servo
     float rotation, degrees_per_second, target_rotation;
@@ -293,25 +239,25 @@ struct segment_T {
         this->mesh = nullptr;
     }
 
-    constexpr inline float get_clamped_rotation(const bool &allow_interpolate = false) {
+    constexpr inline float get_clamped_rotation(const bool &allow_interpolate = false) const {
         return util::clamp(allow_interpolate ? get_rotation() : rotation, -180, 180);
     }
 
-    inline float get_rotation(bool allow_interpolate = true);
+    inline float get_rotation(const bool &allow_interpolate = true) const;
 
-    float get_length() {
+    constexpr inline float get_length() const {
         return length * model_scale;
     }
 
-    glm::mat4 get_rotation_matrix(bool allow_interpolate = true) {
+    constexpr inline glm::mat4 get_rotation_matrix(const bool &allow_interpolate = true) const {
         if (!parent)
             return glm::rotate(glm::mat4(1.0f), glm::radians(-90.0f), glm::vec3(x_axis));
 
         return glm::rotate(parent->get_rotation_matrix(allow_interpolate), glm::radians(get_rotation(allow_interpolate)), rotation_axis);
     }
 
-    glm::mat4 get_model_transform(bool allow_interpolate = true) {
-        glm::vec3 origin = get_origin();
+    constexpr inline glm::mat4 get_model_transform(const bool &allow_interpolate = true) const {
+        const glm::vec3 origin = get_origin();
         glm::mat4 matrix(1.);
         
         matrix = glm::translate(matrix, origin);
@@ -321,11 +267,11 @@ struct segment_T {
         return matrix;        
     }
 
-    glm::vec3 get_segment_vector(bool allow_interpolate = true) {
+    constexpr inline glm::vec3 get_segment_vector(const bool &allow_interpolate = true) const {
         return util::matrix_to_vector(get_rotation_matrix(allow_interpolate)) * get_length();
     }
 
-    glm::vec3 get_origin(bool allow_interpolate = true) {
+    constexpr inline glm::vec3 get_origin(const bool &allow_interpolate = true) const {
         if (!parent) {
             assert(mesh && "Mesh null\n");
             return mesh->position;
@@ -430,9 +376,9 @@ struct kinematics_t {
         auto target_pl2d = glm::vec2(target_pl3d.x, target_pl3d.y);
         auto plo3d = glm::vec3(0.0f);
         auto plo2d = glm::vec2(0.0f);
-        auto pl3d = glm::vec3(500.0f, 0.0f, 0.0f);
-        auto pl2d = glm::vec2(pl3d);
-        auto s2d = glm::vec2(500);
+        //auto pl3d = glm::vec3(500.0f, 0.0f, 0.0f);
+        //auto pl2d = glm::vec2(pl3d);
+        //auto s2d = glm::vec2(500);
 
         std::vector<segment_t*> remaining_segments;
         remaining_segments.assign(segments.begin() + 2, segments.end());
@@ -1462,7 +1408,7 @@ void joystick_t::connect_robot() {
 }
 
 template<>
-inline float segment_T<>::get_rotation(bool allow_interpolate) {
+inline float segment_T<>::get_rotation(const bool &allow_interpolate) const {
     if (model_interpolation && allow_interpolate) {
         auto &rb = robot_interface->robot_servos;
         if (rb.contains(servo_num)) {

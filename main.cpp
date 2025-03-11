@@ -281,7 +281,7 @@ struct kinematics_t {
         float rot_out[5];
 
         for (int i = 0; i < segments.size(); i++)
-            rot_out[i] = segments[i]->rotation;
+            rot_out[i] = segments[i]->get_rotation(false);
 
         // solve base rotation
         auto seg_6 = s6->get_origin();
@@ -526,7 +526,8 @@ struct kinematics_t {
         if (debug_pedantic)
             printf("End rot: %.2f,%.2f,%.2f,%.2f,%.2f\n", rot_out[0], rot_out[1], rot_out[2], rot_out[3], rot_out[4]);
         for (int i = 0; i < segments.size(); i++)
-            segments[i]->rotation = rot_out[i] * 360.0f;
+            //segments[i]->rotation = rot_out[i] * 360.0f;
+            segments[i]->set_rotation(rot_out[i] * 360.0f);
 
         set_sliders_from_segments();
 
@@ -734,12 +735,18 @@ struct joystick_t {
                 ndd = scale_axes(ndd) * deltaTime;
 
                 if (glm::length2(ndd) > 0) {
-                    s2->rotation += ndd.x * deltaTime;
-                    s1->rotation -= ndd.y * deltaTime;
-                    s1->rotation += ndd.z * deltaTime;
+                    float s2r = s2->get_rotation(false);
+                    float s1r = s1->get_rotation(false);
 
-                    s2->rotation = util::clip(s2->rotation, -120, 120); // because we can't check robot_interface unless refactor, works for now
-                    s1->rotation = util::clip(s1->rotation, -50, 50);
+                    s2r += ndd.x * deltaTime;
+                    s1r -= ndd.y * deltaTime;
+                    s1r += ndd.z * deltaTime;
+
+                    s2r = util::clip(s2r, -120, 120); // because we can't check robot_interface unless refactor, works for now
+                    s1r = util::clip(s1r, -50, 50);
+
+                    s2->set_rotation(s2r);
+                    s1->set_rotation(s1r);
                 }
             }
         }
@@ -1335,7 +1342,7 @@ void joystick_t::connect_robot() {
 
 void set_segments_from_sliders() {
     for (int i = 0; i < servo_sliders.size() && i < servo_segments.size(); i++)
-        servo_segments[i]->rotation = servo_sliders[i]->value;
+        servo_segments[i]->set_rotation(servo_sliders[i]->value);
 
     robot_target = s3->get_origin() + s3->get_segment_vector();
 }
@@ -1386,10 +1393,11 @@ void set_segments_from_robot() {
         auto *ui = servo_sliders[i];
         auto &rs = robot_interface->robot_servos[sg->servo_num];
         float intrp = rs.get_interpolated_pos<float>();
-        sg->rotation = rs.get_deg<float>(intrp);
+        //sg->rotation = rs.get_deg<float>(intrp);
+        sg->set_rotation(rs.get_deg<float>(intrp));
         ui->set_value(sg->get_clamped_rotation(), false);
         if (debug_pedantic)
-            fprintf(stderr, "%i -> %s (%f -> %f)\n", sg->servo_num, ui->title_cached.c_str(), sg->rotation, sg->get_clamped_rotation());
+            fprintf(stderr, "%i -> %s (%f -> %f)\n", sg->servo_num, ui->title_cached.c_str(), sg->get_rotation(false), sg->get_clamped_rotation());
     }
 
     robot_target = s3->get_origin() + s3->get_segment_vector();
@@ -1403,7 +1411,7 @@ void set_robot_from_segments() {
             continue;
         
         auto &rs = rv[sg->servo_num];
-        rs.set_pos(rs.get_int(sg->rotation));
+        rs.set_pos(rs.get_int(sg->get_rotation(false)));
     }
 }
 
@@ -1611,7 +1619,7 @@ void reset() {
     camera->pitch = 0.001;
     camera->fov = 90;
     for (auto &seg : servo_segments)
-        seg->rotation = 0;
+        seg->set_rotation(0);
     set_sliders_from_segments();
     set_robot_from_segments();
     robot_target = s3->get_segment_vector(false) + s3->get_origin(false);
@@ -1640,14 +1648,29 @@ textFragmentShader->load("shaders/text_fragment_shader.glsl"))
         "assets/xarm-s3.obj"
     };
 
+    int dhome = 500;
+    int dpos = 500;
+    int drp = 500;
+    float dconv = 240.0f / 1000.0f;
+
+    segment_t::robot_servo_type servo_vals[7] = {
+        {},
+        { 6, 200, 850, dhome, dpos, drp, 641.0f, dconv }, // gripper
+        { 5, 0, 925, dhome, dpos, drp, 700.0f, dconv }, // wrist
+        { 4, 38, 1000, dhome, dpos, drp, 700.0f, dconv }, // 3
+        { 3, 0, 1042, 502, dpos, drp, 700.0f, -dconv }, // 4 (inverted)
+        { 2, 148, 882, 505, dpos, drp, 700.0f, dconv }, // 5
+        { 1, 0, 1146, 482, dpos, drp, 700.0f, dconv }  // base
+    };
+
     segment_t segment_vals[7] = {
-        {nullptr, meshes[0], z_axis, 46.19, 7},
-        {sBase, meshes[1], z_axis, 35.98, 6},
-        {s6, meshes[2], y_axis, 100.0, 5},
-        {s5, meshes[3], y_axis, 96.0, 4},
-        {s4, meshes[4], y_axis, 150.0, 3},
-        {nullptr, nullptr, z_axis, 0, 2},
-        {nullptr, nullptr, z_axis, 0, 1}
+        {nullptr, meshes[0], servo_vals[0], z_axis, 46.19},
+        {sBase, meshes[1], servo_vals[1], z_axis, 35.98},
+        {s6, meshes[2], servo_vals[2], y_axis, 100.0},
+        {s5, meshes[3], servo_vals[3], y_axis, 96.0},
+        {s4, meshes[4], servo_vals[4], y_axis, 150.0},
+        {nullptr, nullptr, servo_vals[5], z_axis, 0},
+        {nullptr, nullptr, servo_vals[6], z_axis, 0}
     };
 
     for (int i = 0; i < sizeof mesh_locs / sizeof mesh_locs[0]; i++)
@@ -1833,13 +1856,17 @@ void handle_keyboard(GLFWwindow* window, float deltaTime) {
     bool change_2 = false;
 
     for (int i = 0; i < 4; i++) {
+        auto *seg = segments[i];
+        auto rot = seg->get_rotation(false);
         if (glfwGetKey(window, raise[i]) == GLFW_PRESS) {
-            segments[i]->rotation += movementFactor * deltaTime;
+            rot += movementFactor * deltaTime;
+            seg->set_rotation(rot);
             change_2 = true;
         }
 
         if (glfwGetKey(window, lower[i]) == GLFW_PRESS) {
-            segments[i]->rotation -= movementFactor * deltaTime;
+            rot -= movementFactor * deltaTime;
+            seg->set_rotation(rot);
             change_2 = true;
         }
     }

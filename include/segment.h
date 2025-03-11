@@ -5,24 +5,142 @@
 
 struct mesh_t;
 
-template<typename mesh_base = mesh_t>
-struct segment_T {
+template<typename SERVO_T = int, typename T = float>
+struct robot_servo_T {
+    robot_servo_T() {}
+
+    robot_servo_T(int servo_num, 
+                  SERVO_T servo_min, 
+                  SERVO_T servo_max, 
+                  SERVO_T servo_home, 
+                  SERVO_T end_pos, 
+                  SERVO_T cur_pos, 
+                  T degrees_per_second, 
+                  T steps_per_degree):
+    servo_num(servo_num),
+    servo_min(servo_min),
+    servo_max(servo_max),
+    servo_home(servo_home),
+    servo_end_position(end_pos),
+    servo_cur_position(cur_pos),
+    degrees_per_second(degrees_per_second),
+    steps_per_degree(steps_per_degree) {
+
+    }
+
+    using dur_type = long;
+    using clk = std::chrono::high_resolution_clock;
+    using tp = std::chrono::time_point<clk>;
+    using dur = std::chrono::duration<dur_type, std::milli>;
+
+    SERVO_T servo_cur_position, servo_end_position;
+    SERVO_T servo_min, servo_max, servo_home;
+    int servo_num;
+
+    T degrees_per_second, steps_per_degree;
+    tp last_command;
+
+    dur_type min_command_interval = 20;
+    SERVO_T min_command_threshold = 1;
+
+    template<typename RET = T, typename VT = SERVO_T>
+    inline RET to_degrees(const VT &v) const {
+        return RET(v) * steps_per_degree;
+    }
+
+    template<typename RET = SERVO_T, typename VT = T>
+    inline RET to_servo(const VT &v) const {
+        return RET(v) * (1.0 / steps_per_degree);
+    }
+
+    template<typename RET = dur_type>
+    inline RET get_elapsed_time() const {
+        using _dur = std::chrono::duration<RET>;
+        return (RET)std::chrono::duration_cast<_dur>(clk::now() - last_command).count();
+    }
+    
+    inline bool movement_complete() const {
+        return get_servo_interpolated() <= min_command_threshold;
+    }
+
+    inline bool ready_for_command() const {
+        return get_elapsed_time() >= min_command_interval;
+    }
+
+    void set_servo(const SERVO_T &v) {
+        last_command = clk::now();
+        servo_cur_position = servo_end_position;
+        servo_end_position = v;
+    }
+
+    template<typename VT = T>
+    void set_servo_degrees(const VT &v) {
+        set_servo(to_servo(v));
+    }
+
+    inline SERVO_T get_servo() const {
+        return servo_end_position;
+    }
+
+    template<typename RET = T>
+    inline RET get_servo_degrees() const {
+        return to_degrees<RET>(get_servo());
+    }
+
+    template<typename RET = SERVO_T>
+    inline RET get_servo_interpolated() const {
+        RET d = servo_end_position - servo_cur_position;
+
+        if (abs(d) < min_command_threshold)
+            return servo_end_position;
+
+        auto t = get_elapsed_time<float>();
+
+        RET md = t * degrees_per_second;
+        RET dir = d > 0 ? 1 : -1;
+        RET intp = dir * md;
+
+        if (abs(intp) > abs(d))
+            return servo_end_position;
+
+        return intp + servo_cur_position;
+    }
+    
+    template<typename RET = T>
+    inline RET get_servo_interpolated_degrees() const {
+        return to_degrees<RET>(get_servo_interpolated<RET>());
+    }
+};
+
+using robot_servo_t = robot_servo_T<int, float>;
+
+template<typename mesh_base = mesh_t/*, typename robot_servo_type_T = robot_servo_T<int, float>*/>
+struct segment_T : public robot_servo_T<int, float> {
+    using robot_servo_type = robot_servo_T<int, float>;
     segment_T() {}
 
-    segment_T(segment_T *parent, mesh_base *mesh, glm::vec3 rotation_axis, float length, int servo_num) {
+    segment_T(segment_T *parent, mesh_base *mesh, const robot_servo_type &servo_config, glm::vec3 rotation_axis, float length)
+    :robot_servo_type(servo_config) {
         this->parent = parent;
         this->rotation_axis = rotation_axis;
         this->length = length;
-        this->servo_num = servo_num;
-        this->rotation = 0.0f;
         this->mesh = mesh;
     }
 
     constexpr inline float get_clamped_rotation(const bool &allow_interpolate = false) const {
-        return util::clamp(allow_interpolate ? get_rotation() : rotation, -180, 180);
+        return util::clamp(allow_interpolate ? get_rotation() : get_servo_degrees(), -180, 180);
     }
 
-    inline float get_rotation(const bool &allow_interpolate = true) const;
+    inline void set_rotation(const float &degrees) {
+        set_servo_degrees(degrees);
+    }
+
+    inline float get_rotation(const bool &allow_interpolate = true) const {
+        if (allow_interpolate)
+            return get_servo_interpolated_degrees();
+        else
+            return get_servo_degrees();
+    }
 
     constexpr inline float get_length() const {
         return length * model_scale;
@@ -74,23 +192,8 @@ struct segment_T {
     glm::vec3 rotation_axis;
     segment_T<> *parent;
     glm::vec3 debug_color;
-    float length, rotation;
-    int servo_num;
+    float length;
     mesh_base *mesh;
 };
 
-template<>
-inline float segment_T<>::get_rotation(const bool &allow_interpolate) const {
-    /*
-    if (model_interpolation && allow_interpolate) {
-        auto &rb = robot_interface->robot_servos;
-        if (rb.contains(servo_num)) {
-            auto &rs = rb[servo_num];
-            return rs.get_deg<float>(rs.get_interpolated_pos<float>());
-        }
-    }
-    */
-    return rotation;
-}
-
-using segment_t = segment_T<mesh_t>;
+using segment_t = segment_T<>;

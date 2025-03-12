@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../thirdparty/stl_reader.h"
+#include "stl_reader.h"
 #include <tiny_obj_loader.h>
 
 #include "common.h"

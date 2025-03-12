@@ -12,20 +12,20 @@
 
 #include <hidapi/hidapi.h>
 
-#include "include/common.h"
-#include "include/camera.h"
-#include "include/texture.h"
-#include "include/mesh.h"
-#include "include/shader.h"
-#include "include/shader_program.h"
-#include "include/text.h"
-#include "include/ui_element.h"
-#include "include/ui_text.h"
-#include "include/ui_slider.h"
-#include "include/ui_toggle.h"
-#include "include/frametime.h"
-#include "include/util.h"
-#include "include/segment.h"
+#include "common.h"
+#include "camera.h"
+#include "texture.h"
+#include "mesh.h"
+#include "shader.h"
+#include "shader_program.h"
+#include "text.h"
+#include "ui_element.h"
+#include "ui_text.h"
+#include "ui_slider.h"
+#include "ui_toggle.h"
+#include "frametime.h"
+#include "util.h"
+#include "segment.h"
 
 struct shader_text_t;
 struct shader_materials_t;

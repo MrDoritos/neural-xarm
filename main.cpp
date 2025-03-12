@@ -859,7 +859,11 @@ struct joystick_t {
             auto &jd = kv.second;
 
             if (joysticks.contains(kv.first)) {
-                joys.insert({kv.first, joysticks[kv.first]});
+                //joys.insert({kv.first, joysticks[kv.first]});
+                using it = map_type::iterator;
+                using mv = std::move_iterator<it>;
+                it p = joysticks.find(kv.first);
+                joys.insert(mv(p),mv(p));
                 continue;
             }
 
@@ -880,7 +884,7 @@ struct joystick_t {
                 fprintf(stderr, "Remove joystick %i \"%s\" \"%s\" \"%s\"\n", jd.second.jid, jd.second.gp_name.c_str(), jd.second.name.c_str(), jd.second.guid.c_str());
 
         first_run = false;
-        joysticks = joys;
+        joysticks = std::move(joys);
         update(0.1);
     }
 };

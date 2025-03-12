@@ -17,7 +17,7 @@ The OpenGL version made it possible to use proper 4x4 identity matrices which in
 ### Step 1. Download
 
 ```
-git clone https://github.com/MrDoritos/neural-xarm
+git clone https://github.com/MrDoritos/neural-xarm --recursive
 cd neural-xarm
 ```
 
@@ -36,11 +36,13 @@ sudo python3 -m pip install -r ./requirements.txt
 
 ```
 # Install dependencies
-sudo apt install libglfw3-dev libopengl-dev libgles2-mesa-dev libegl1-mesa-dev libglm-dev libgl1-mesa-dev mesa-common-dev g++ libhidapi-dev
+sudo apt install libglfw3-dev libopengl-dev libgles2-mesa-dev libegl1-mesa-dev libglm-dev libgl1-mesa-dev mesa-common-dev g++ cmake libhidapi-dev
 # Compile
-g++ main.cpp -lGL -lglfw -lhidapi-libusb -g -o main.out
+mkdir build && cd build
+cmake ..
+make
 # Run program
-./main.out
+./neural_xarm
 ```
 
 Note, if `<format>` is not found, you may not have g++13. This was the case on my Debian 12/bookworm laptop. To fix this, the best way other than adding an external repo or 3rd party .deb file is to compile gcc/g++ from source see https://stackoverflow.com/questions/78306968/installing-gcc13-and-g13-in-debian-bookworm-rust-docker-image for the example commands to achieve this. You will also need to add -static-libstdc++ and possibly compile glfw3 3.4 for joystick support.
@@ -72,8 +74,8 @@ If you have any issues, feel free to submit an issue or contact me.
 ### To-Do
 
 - [x] Check origins of model, they are wrong again 
-- [ ] Add new dependencies as submodules
-- [ ] Integrate CMake into the build process
+- [x] Add new dependencies as submodules
+- [x] Integrate CMake into the build process
 - [ ] After CMake, separate the header files
 - [ ] Maybe add tests to challenge myself
 - [x] Add new screenshot/gif video of the colored segments and new shader
@@ -81,3 +83,14 @@ If you have any issues, feel free to submit an issue or contact me.
 - [ ] Conceptualize new inverse kinematics solver
 - [ ] Test control over bluetooth HID (need the robot again)
 - [ ] Order thermostat for car? (I keep forgetting)
+
+## Credits
+
+- [tinyobjloader](https://github.com/tinyobjloader/tinyobjloader)
+- [stb](https://github.com/nothings/stb)
+- [glfw](https://github.com/glfw/glfw)
+- [hidapi](https://github.com/libusb/hidapi)
+- [glm](https://github.com/g-truc/glm)
+- [Khronos Group](https://www.khronos.org/)
+
+

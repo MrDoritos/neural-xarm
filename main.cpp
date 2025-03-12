@@ -1641,12 +1641,12 @@ textFragmentShader->load("shaders/text_fragment_shader.glsl"))
 
     segment_t::robot_servo_type servo_vals[7] = {
         {},
-        { 6, 200, 850, dhome, dpos, drp, 641.0f, dconv }, // gripper
-        { 5, 0, 925, dhome, dpos, drp, 700.0f, dconv }, // wrist
-        { 4, 38, 1000, dhome, dpos, drp, 700.0f, dconv }, // 3
-        { 3, 0, 1042, 502, dpos, drp, 700.0f, -dconv }, // 4 (inverted)
-        { 2, 148, 882, 505, dpos, drp, 700.0f, dconv }, // 5
-        { 1, 0, 1146, 482, dpos, drp, 700.0f, dconv }  // base
+        { 6, 0, 1146, 482, dpos, drp, 700.0f, dconv },  // base
+        { 5, 148, 882, 505, dpos, drp, 700.0f, dconv }, // 5
+        { 4, 0, 1042, 502, dpos, drp, 700.0f, -dconv }, // 4 (inverted)
+        { 3, 38, 1000, dhome, dpos, drp, 700.0f, dconv }, // 3
+        { 2, 0, 925, dhome, dpos, drp, 700.0f, dconv }, // wrist
+        { 1, 200, 850, dhome, dpos, drp, 641.0f, dconv } // gripper
     };
 
     segment_t segment_vals[7] = {

@@ -929,11 +929,11 @@ struct robot_interface_t {
         requires std::is_base_of_v<robot_servo_T<SERVO_T, VT_T>, RB>
     bool get_servo_command(RB *servo, PERIOD_T &r_period, RB_TP &batch_time, PAIR_T &cmd) {
         auto targetf = servo->get_clamped_rotation();
-        auto targeti = servo->to_servo(targetf);
+        auto targeti = servo->get_servo(targetf);//servo->to_servo(targetf);
         auto servo_min = servo->servo_min;
         auto servo_max = servo->servo_max;
         auto initialp = servo->get_servo_start();
-        auto initialpf = servo->to_degrees(initialp);
+        auto initialpf = servo->get_servo_degrees(initialp);
         auto intrp = servo->get_servo_interpolated();
 
         if (targeti < servo_min || targeti > servo_max)
@@ -1616,6 +1616,16 @@ textFragmentShader->load("shaders/text_fragment_shader.glsl"))
         textProgram->load()))
         handle_error("Failed to compile shaders");
 
+    /*
+        Forward: -Y
+        Up: Z
+        UV, Triangulate, Normals, Modifiers
+        Selection only
+
+        Shade auto smooth 30*
+        Merge by distance 0.00001
+        Origin on pivot point
+    */
     const char *mesh_locs[5] = {
         "assets/xarm-sbase.obj",
         "assets/xarm-s6.obj",

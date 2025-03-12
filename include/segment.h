@@ -77,16 +77,26 @@ struct robot_servo_T {
 
     template<typename VT = T>
     void set_servo_degrees(const VT &v) {
-        set_servo(to_servo(v) + servo_home);
+        set_servo(get_servo(v));
     }
 
     inline SERVO_T get_servo() const {
         return servo_end_position;
     }
 
+    template<typename VT>
+    inline SERVO_T get_servo(const VT &degrees) const {
+        return to_servo(degrees) + servo_home;
+    }
+
     template<typename RET = T>
     inline RET get_servo_degrees() const {
         return to_degrees<RET>(get_servo() - servo_home);
+    }
+
+    template<typename RET = T, typename VT = SERVO_T>
+    inline RET get_servo_degrees(const VT &v) const {
+        return to_degrees<RET, VT>(v - servo_home);
     }
 
     template<typename RET = SERVO_T>
@@ -110,7 +120,7 @@ struct robot_servo_T {
     
     template<typename RET = T>
     inline RET get_servo_interpolated_degrees() const {
-        return to_degrees<RET>(get_servo_interpolated<RET>());
+        return get_servo_degrees<RET, RET>(get_servo_interpolated<RET>());
     }
 
     inline SERVO_T get_servo_start() const {

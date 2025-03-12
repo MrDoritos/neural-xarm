@@ -178,46 +178,6 @@ struct debug_object_t : public mesh_t {
     }    
 };
 
-struct robot_segment_t {
-    int servo_num;
-    float mass;
-
-    //robot_servo
-    float rotation, degrees_per_second, target_rotation;
-    tp last_command;
-
-    float to_degrees(float);
-    float to_servo(float);
-    float set_servo_degrees(float);
-    float get_servo_degrees();
-    float get_servo_interpolated();
-    float get_servo_interpolated_degrees();
-    void set_servo(float);
-    float get_servo_bound(float);
-    float get_servo();
-    float get_degrees_per_second();
-    float get_elapsed_time();
-    bool movement_complete();
-
-    //segment_t
-    robot_segment_t *parent;
-    float scale, length;
-    glm::vec3 direction, rotation_axis;
-    mesh_t *mesh;
-
-    float get_length();
-    glm::vec3 get_origin();
-    glm::mat4 get_rotation_matrix();
-    glm::mat4 get_model_transform();
-    //get_rotation() -> get_servo_degrees()
-    void render();
-    bool load();
-};
-
-struct robot_t {
-    std::vector<robot_segment_t> segments;
-};
-
 namespace render {
     void render_vector(debug_object_t *debug_objects, glm::vec3 origin, glm::vec3 end) {
         debug_objects->add_line(origin, end);
@@ -231,25 +191,27 @@ namespace render {
     }
 
     template<typename T = segment_t>
-    void render_segment_debug(const T* segment, debug_object_t *debug_objects) {
-        auto origin = segment->get_origin();
-        debug_objects->add_sphere(origin, segment->model_scale);
-        debug_objects->add_sphere(origin + segment->get_segment_vector(), segment->model_scale);
-        render_vector(debug_objects, origin, origin + segment->get_segment_vector());
+    void render_segment_debug(const T* segment, debug_object_t *debug_objects, const bool &allow_interpolate = true) {
+        auto origin = segment->get_origin(allow_interpolate);
+        auto seg_vec = segment->get_segment_vector(allow_interpolate);
+        auto rot_mat = segment->get_rotation_matrix(allow_interpolate);
 
-        auto rot_mat = segment->get_rotation_matrix();
+        debug_objects->add_sphere(origin, segment->model_scale);
+        debug_objects->add_sphere(origin + seg_vec, segment->model_scale);
+        render_vector(debug_objects, origin, origin + seg_vec);
+
         auto tran_rot_mat = glm::translate(rot_mat, origin);
 
         render_matrix(debug_objects, origin, tran_rot_mat);
     }
 
     template<typename T = segment_t>
-    void render_segment(const T* segment, shaderProgram_t *program, camera_t *camera) {
+    void render_segment(const T* segment, shaderProgram_t *program, camera_t *camera, const bool &allow_interpolate = true) {
         if (debug_mode) {
             program->set_camera(camera, glm::mat4(1.0f));
-            render_segment_debug(segment, debug_objects);
+            render_segment_debug(segment, debug_objects, allow_interpolate);
         }
-        program->set_camera(camera, segment->get_model_transform());
+        program->set_camera(camera, segment->get_model_transform(allow_interpolate));
         if (debug_pedantic) {
             program->set_v3("light.ambient", segment->debug_color);
         }
@@ -257,10 +219,10 @@ namespace render {
     }
 
     template<typename T = segment_t>
-    void render_segments(const std::vector<T*> &segments, shaderProgram_t *program, camera_t *camera) {
+    void render_segments(const std::vector<T*> &segments, shaderProgram_t *program, camera_t *camera, const bool &allow_interpolate = true) {
         program->use();
         for (T* segment : segments)
-            render_segment(segment, program, camera);
+            render_segment(segment, program, camera, allow_interpolate);
     }
 }
 
@@ -281,10 +243,10 @@ struct kinematics_t {
         float rot_out[5];
 
         for (int i = 0; i < segments.size(); i++)
-            rot_out[i] = segments[i]->get_rotation(false);
+            rot_out[i] = segments[i]->get_clamped_rotation(false);
 
         // solve base rotation
-        auto seg_6 = s6->get_origin();
+        auto seg_6 = s6->get_origin(false);
         auto seg2d_6 = glm::vec2(seg_6.x, seg_6.z);
 
         auto dif_6 = target_2d - seg2d_6;
@@ -294,7 +256,7 @@ struct kinematics_t {
         auto deg_6 = rot_6 * 360.0f;
         auto serv_6 = rot_6;
 
-        glm::vec3 seg_5 = s5->get_origin();
+        glm::vec3 seg_5 = s5->get_origin(false);
         glm::vec3 seg_5_real = glm::vec3(seg_5.x, seg_5.z, seg_5.y);
         glm::vec3 target_for_calc = target_coords;
 
@@ -1334,9 +1296,9 @@ void joystick_t::connect_robot() {
 
 void set_segments_from_sliders() {
     for (int i = 0; i < servo_sliders.size() && i < servo_segments.size(); i++)
-        servo_segments[i]->set_rotation(servo_sliders[i]->value);
+        servo_segments[i]->set_rotation_bound(servo_sliders[i]->value);
 
-    robot_target = s3->get_origin() + s3->get_segment_vector();
+    robot_target = s3->get_origin(false) + s3->get_segment_vector(false);
 }
 
 void servo_slider_update(ui_slider_t* ui, ui_slider_t::ui_slider_v value) {
@@ -1389,7 +1351,7 @@ void set_segments_from_robot() {
             fprintf(stderr, "%i -> %s (%f -> %f)\n", sg->servo_num, ui->title_cached.c_str(), sg->get_rotation(false), sg->get_clamped_rotation());
     }
 
-    robot_target = s3->get_origin() + s3->get_segment_vector();
+    robot_target = s3->get_origin(false) + s3->get_segment_vector(false);
 }
 
 void set_robot_from_segments() {
@@ -1400,11 +1362,11 @@ void set_robot_from_segments() {
 }
 
 std::string segment_debug_info() {
-    std::string ret = "Rotation\n";
+    std::string ret = "";
+    ret += std::format("{:>7} {: >12s} {: >13s}\n", "Servos:", "Interpolated", "Immediate");
 
     auto get_segment = [&](segment_t *seg) {
-        float cv = seg->get_clamped_rotation();
-        return std::format("  {}: {}  {}\n", seg->servo_num, cv, seg->to_servo(cv));
+        return std::format("{:>3}: {:>9.2f} {:>5} {:>7.2f} {:>5}\n", seg->servo_num, seg->get_servo_interpolated_degrees(), seg->get_servo_interpolated(), seg->get_servo_degrees(), seg->get_servo());
     };
 
     for (auto *seg : servo_segments)
@@ -1695,7 +1657,7 @@ int main() {
         robot_interface->update();
 
         mainProgram->use();
-        mainProgram->set_camera(camera);
+        //mainProgram->set_camera(camera);
 
         glm::vec3 diffuse(slider_diffuse->value), specular(slider_specular->value), ambient(slider_ambient->value);
 
@@ -1709,7 +1671,7 @@ int main() {
 
         mainProgram->set_material(robotMaterial);
 
-        render::render_segments(visible_segments, mainProgram, camera);
+        render::render_segments(visible_segments, mainProgram, camera, model_interpolation);
 
         if (debug_mode)
             debug_objects->render();    

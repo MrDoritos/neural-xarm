@@ -47,12 +47,12 @@ struct robot_servo_T {
 
     template<typename RET = T, typename VT = SERVO_T>
     inline RET to_degrees(const VT &v) const {
-        return RET(v) * steps_per_degree;
+        return RET(v * steps_per_degree);
     }
 
     template<typename RET = SERVO_T, typename VT = T>
     inline RET to_servo(const VT &v) const {
-        return RET(v) * (1.0 / steps_per_degree);
+        return RET(v * (T(1.0) / steps_per_degree));
     }
 
     template<typename RET = dur_type>
@@ -70,8 +70,9 @@ struct robot_servo_T {
     }
 
     void set_servo(const SERVO_T &v) {
+        servo_cur_position = get_servo_interpolated();
         last_command = clk::now();
-        servo_cur_position = servo_end_position;
+        //servo_cur_position = servo_end_position;
         servo_end_position = v;
     }
 
@@ -144,7 +145,16 @@ struct segment_T : public robot_servo_T<int, float> {
     }
 
     constexpr inline float get_clamped_rotation(const bool &allow_interpolate = false) const {
-        return util::clamp(allow_interpolate ? get_rotation() : get_servo_degrees(), -180, 180);
+        return util::clamp(get_rotation(allow_interpolate), -180, 180);
+    }
+
+    inline void set_rotation_bound(const float &degrees) {
+        //fprintf(stderr, "%i %f %i %i %f %f %i %f\n", servo_num, degrees, servo_min, servo_max, get_servo_degrees(servo_min), get_servo_degrees(servo_max), servo_home, get_servo_degrees(servo_home));
+        auto min = get_servo_degrees(servo_min);
+        auto max = get_servo_degrees(servo_max);
+        if (min > max)
+            std::swap(min, max);
+        set_servo_degrees(util::clip(degrees, min, max));
     }
 
     inline void set_rotation(const float &degrees) {
@@ -152,6 +162,7 @@ struct segment_T : public robot_servo_T<int, float> {
     }
 
     inline float get_rotation(const bool &allow_interpolate = true) const {
+        //fprintf(stderr, "%i %f %f\n", servo_num, get_servo_interpolated_degrees(), get_servo_degrees());
         if (allow_interpolate)
             return get_servo_interpolated_degrees();
         else
@@ -170,7 +181,7 @@ struct segment_T : public robot_servo_T<int, float> {
     }
 
     constexpr inline glm::mat4 get_model_transform(const bool &allow_interpolate = true) const {
-        const glm::vec3 origin = get_origin();
+        const glm::vec3 origin = get_origin(allow_interpolate);
         glm::mat4 matrix(1.);
         
         matrix = glm::translate(matrix, origin);

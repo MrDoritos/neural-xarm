@@ -1,5 +1,6 @@
 #include <iomanip>
 #include <thread>
+#include <mutex>
 
 #include <signal.h>
 
@@ -585,10 +586,14 @@ struct joystick_t {
         }
     };
 
-    std::map<std::string, joystick_device_t> joysticks;
+    using map_type = std::map<std::string, joystick_device_t>;
+
+    map_type joysticks;
     
     bool pedantic_debug = false;
     bool camera_move = false;
+
+    std::mutex no_reentrancy;
 
     std::map<int, std::string> button_mapping = {
         {GLFW_GAMEPAD_BUTTON_GUIDE, "Guide"},
@@ -788,11 +793,19 @@ struct joystick_t {
     }
 
     void update(double deltaTime) {
+        GLFWgamepadstate p;
+        glfwGetGamepadState(0, &p);
+
+        if (!no_reentrancy.try_lock())
+            return;
+
         for (auto &joy : joysticks)
             joy.second.update();
 
         process_input(deltaTime);
         set_robot(deltaTime);
+
+        no_reentrancy.unlock();
     }
 
     std::string debug_info() {
@@ -833,7 +846,7 @@ struct joystick_t {
     }
 
     void query_joysticks() {
-        std::map<std::string, joystick_device_t> joys;
+        map_type joys = map_type();
         static bool first_run = true;
 
         for (int jid = GLFW_JOYSTICK_1; jid < GLFW_JOYSTICK_LAST; jid++) {

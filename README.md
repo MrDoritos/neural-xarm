@@ -79,7 +79,7 @@ If you have any issues, feel free to submit an issue or contact me.
 - [ ] After CMake, separate the header files
 - [ ] Maybe add tests to challenge myself
 - [x] Add new screenshot/gif video of the colored segments and new shader
-- [ ] Finish movement rewrite
+- [x] Finish movement rewrite
 - [ ] Conceptualize new inverse kinematics solver
 - [ ] Test control over bluetooth HID (need the robot again)
 - [ ] Order thermostat for car? (I keep forgetting)
@@ -87,6 +87,7 @@ If you have any issues, feel free to submit an issue or contact me.
 ## Credits
 
 - [tinyobjloader](https://github.com/tinyobjloader/tinyobjloader)
+- [stl_reader](https://github.com/sreiter/stl_reader)
 - [stb](https://github.com/nothings/stb)
 - [glfw](https://github.com/glfw/glfw)
 - [hidapi](https://github.com/libusb/hidapi)

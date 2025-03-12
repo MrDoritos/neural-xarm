@@ -24,7 +24,7 @@ using dur = std::chrono::duration<double>;
 glm::vec<4, int> initial_window;
 glm::vec<4, int> current_window;
 bool fullscreen;
-bool debug_mode = true;
+bool debug_mode = false;
 bool debug_pedantic = false;
 bool debug_ui = false;
 bool model_interpolation = true;

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "common.h"
-#include "image.h"
+#include "stb_image.h"
 
 struct texture_t {
     GLuint textureId;

@@ -463,6 +463,7 @@ struct kinematics_t {
                 auto rot = atan2(calcmag.x, calcmag.y) - prevrot;
 
                 auto deg = ((glm::degrees(rot)) / 180.0f) * 0.5f + 1.0f;
+                deg *= 360;
 
                 if (isnot_real(deg)) {
                     deg = rot_out[i + 2];
@@ -484,13 +485,14 @@ struct kinematics_t {
         if (debug_pedantic)
             printf("Initial rot: %.2f,%.2f,%.2f,%.2f,%.2f\n", rot_out[0], rot_out[1], rot_out[2], rot_out[3], rot_out[4]);
 
-        rot_out[1] = serv_6;
+        rot_out[1] = serv_6 * 360;
 
         if (debug_pedantic)
             printf("End rot: %.2f,%.2f,%.2f,%.2f,%.2f\n", rot_out[0], rot_out[1], rot_out[2], rot_out[3], rot_out[4]);
-        for (int i = 0; i < segments.size(); i++)
-            //segments[i]->rotation = rot_out[i] * 360.0f;
-            segments[i]->set_rotation(rot_out[i] * 360.0f);
+        for (int i = 0; i < segments.size(); i++) {
+            auto wrapped = util::clamp(rot_out[i], -180, 180);
+            segments[i]->set_rotation_bound(wrapped);
+        }
 
         set_sliders_from_segments();
 
@@ -939,14 +941,14 @@ struct robot_interface_t {
         } else
         if (abs(dist) < mv / 2 && abs(jerk) < mv / 4) {
             intrp = targeti;
-            if (debug_mode)
+            if (debug_pedantic)
                 fprintf(stderr, "Force set targeti\n");
         }
 
         servo->servo_end_position = targeti;
         servo->servo_cur_position = intrp;
 
-        if (debug_mode)
+        if (debug_pedantic)
             fprintf(stderr, "Send constant time s%i (%i/initialp -> %i/rintrp (jerk comp %i/intrp)) (%i/mvdist) (%i/targeti %.2f/targetf : %.2f/initialpf) = %i/dist (%i r_period/ms %.2lf mv/intpersec) accel %.2f jerk %.2f\n", servo->servo_num, initialp, rintrp, intrp, mvdist, targeti, targetf, initialpf, dist, r_period, mv, accel, jerk);
 
         cmd = { servo->servo_num, intrp };
@@ -990,117 +992,6 @@ struct robot_interface_t {
             set_servos(cmds, r_period);
             last_batch = now_batch;
         }
-
-        /*
-        assert(robot_servos.size() < 7 && "Need servos to update\n");
-
-        std::vector<std::pair<int,int>> cmds;
-
-        static tp last_batch = clk::now();
-        tp now_batch = clk::now();
-        static bool constant_speed = false;
-        static int u_period = 10;
-        static int m_period = 200;
-        static int t_overlap = 0;
-        int r_period = int(std::chrono::duration_cast<dur>(now_batch - last_batch).count()) + t_overlap;
-
-        if (!constant_speed && r_period < u_period)
-            return;
-
-        if (!constant_speed && r_period > m_period)
-            r_period = m_period;
-
-        for (auto *sv : servo_segments) {
-            auto &rs = robot_servos[sv->servo_num];
-
-            float targetf = sv->get_clamped_rotation();
-            int targeti = rs.get_int(targetf);
-
-            //assert(targeti >= rs.min && targeti <= rs.max && "Position out of bounds");
-            if (targeti < rs.min || targeti > rs.max) {
-                //fprintf(stderr, "Clamp position %i < %i < %i\n", rs.min, targeti, rs.max);
-                if (targeti < rs.min)
-                    targeti = rs.min;
-                if (targeti > rs.max)
-                    targeti = rs.max;
-            }
-
-            int initialp = rs.real_pos;
-            float initialpf = rs.get_deg<int, float>(initialp);
-            int intrp = rs.get_interpolated_pos();
-            int dist = targeti - intrp;
-
-            if (constant_speed)
-            { // constant speed
-            if (abs(dist) < rs.min_diff) {
-                //if (rs.id == 5)
-                //    fprintf(stderr, "Skip sending command to s%i (%i - %i)\n", rs.id, intrp, targeti);
-                continue;
-            }
-            if (!rs.ready_for_command()) {
-                //if (rs.id == 6)
-                //    fprintf(stderr, "Servo not ready s%i\n", rs.id);
-                continue;
-            }
-
-            //rs.get_interpolated_pos(true);
-
-            int time_to_complete = (fabs(dist) / rs.deg_per_second) * 1000;
-            if (debug_pedantic)
-                fprintf(stderr, "Send constant speed s%i (%i - (%i %.2f) = %i, %i ms)\n", rs.id, intrp, targeti, targetf, dist, time_to_complete);
-            rs.set_pos(targeti);
-            set_servos({{rs.id, targeti}}, time_to_complete);
-            //cmds.push_back({rs.id, targeti});
-            } // constant time
-            else 
-            {
-            rs.last_cmd = now_batch;
-
-            if (abs(dist) < rs.min_diff && abs(dist) < 1) {
-                rs.pos = targeti;
-                rs.real_pos = targeti;
-                continue;
-            }
-
-            int mv = (r_period/1000.0f) * rs.deg_per_second;
-            int mvdist = rs.real_pos - intrp;
-            float accel = mvdist / (float)mv;
-            float jerk = (mvdist * (float)mv) / (float)mv;
-            int rintrp = intrp;
-
-            
-            if (abs(jerk) > mv / 2 && abs(mvdist) > 0) {
-                intrp += (mvdist * .5); //limit jerk; to-do velocity
-            } else
-            if (abs(dist) < mv / 2 && abs(jerk) < mv / 4) {
-                intrp = targeti;
-                if (debug_mode)
-                    fprintf(stderr, "Force set targeti\n");
-            }
-
-
-            //rs.set_pos(targeti);
-            rs.pos = targeti;
-            rs.real_pos = intrp;
-            
-            if (debug_mode)
-                fprintf(stderr, "Send constant time s%i (%i/initialp -> %i/rintrp (jerk comp %i/intrp)) (%i/mvdist) (%i/targeti %.2f/targetf : %.2f/initialpf) = %i/dist (%i r_period/ms %i mv/intpersec) accel %.2f jerk %.2f\n", rs.id, initialp, rintrp, intrp, mvdist, targeti, targetf, initialpf, dist, r_period, mv, accel, jerk);
-            
-            cmds.push_back({rs.id, intrp});
-            }
-        }
-
-        if (!constant_speed) {
-            if (cmds.size() > 0) {
-                set_servos(cmds, r_period);
-                last_batch = now_batch;
-            }
-        }
-        //if (cmds.size() > 0)
-        //    set_servos(cmds, 1000);
-        //for (auto &cmd : cmds)
-            //set_servos({cmd}, 1000);
-        */
     }
 
     robot_interface_t(bool permit_virtual = false):virtual_output(permit_virtual) {

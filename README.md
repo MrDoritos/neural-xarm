@@ -71,12 +71,12 @@ If you have any issues, feel free to submit an issue or contact me.
 
 ### To-Do
 
-- [ ] Check origins of model, they are wrong again 
+- [x] Check origins of model, they are wrong again 
 - [ ] Add new dependencies as submodules
 - [ ] Integrate CMake into the build process
 - [ ] After CMake, separate the header files
 - [ ] Maybe add tests to challenge myself
-- [ ] Add new screenshot/gif video of the colored segments and new shader
+- [x] Add new screenshot/gif video of the colored segments and new shader
 - [ ] Finish movement rewrite
 - [ ] Conceptualize new inverse kinematics solver
 - [ ] Test control over bluetooth HID (need the robot again)

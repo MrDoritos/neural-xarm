@@ -45,14 +45,12 @@ make
 ./neural_xarm
 ```
 
-Note, if `<format>` is not found, you may not have g++13. This was the case on my Debian 12/bookworm laptop. To fix this, the best way other than adding an external repo or 3rd party .deb file is to compile gcc/g++ from source see https://stackoverflow.com/questions/78306968/installing-gcc13-and-g13-in-debian-bookworm-rust-docker-image for the example commands to achieve this. You will also need to add -static-libstdc++ and possibly compile glfw3 3.4 for joystick support.
+Note, if `<format>` is not found, you may not have g++13. This was the case on my Debian 12/bookworm laptop. To fix this, the best way other than adding an external repo or 3rd party .deb file is to compile gcc/g++ from source see https://stackoverflow.com/questions/78306968/installing-gcc13-and-g13-in-debian-bookworm-rust-docker-image for the example commands to achieve this. You may need to compile glfw3 3.4 for joystick support.
 
-Now with CMake, here's how to build with an arbitrary compiler
+Since I have to build with a different compiler I added a flag `COMPAT` to switch the lib and bin path for compilation. You may also set `COMPAT_PATH`, but currently only searches for `g++-13` at this time.
 
 ```
-export CC=/usr/local/bin/gcc
-export CXX=/usr/local/bin/g++
-cmake .. && make
+cmake .. -DCOMPAT=1 && make
 ```
 
 ### Connecting to the robot with USB

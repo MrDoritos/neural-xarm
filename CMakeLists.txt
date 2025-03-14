@@ -5,6 +5,16 @@ project(neural-xarm)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
+if(COMPAT)
+    if(NOT DEFINED COMPAT_PATH)
+        find_path(COMPAT_PATH g++-13)
+    endif()
+    set(CXX ${COMPAT_PATH}/g++-13)
+    set(CC ${COMPAT_PATH}/gcc-13)
+    set(CMAKE_EXE_LINKER_FLAGS
+        "${CMAKE_EXE_LINKER_FLAGS} -Wl,-rpath -Wl,${COMPAT_PATH}/../lib64")
+endif()
+
 set(NEURAL_XARM_NAME neural_xarm)
 set(NEURAL_XARM_FILES shaders assets)
 set(NEURAL_XARM_SOURCE_DIR src)
@@ -14,7 +24,7 @@ set(THIRDPARTY_INCLUDE_DIR thirdparty)
 
 add_subdirectory(${THIRDPARTY_INCLUDE_DIR}/tinyobjloader)
 
-add_compile_definitions(STB_IMAGE_IMPLEMENTATION)
+add_compile_definitions(STB_IMAGE_IMPLEMENTATION=1)
 
 add_executable(${NEURAL_XARM_NAME}
     ${NEURAL_XARM_SOURCE_DIR}/main.cpp

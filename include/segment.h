@@ -145,7 +145,7 @@ struct segment_T : public robot_servo_T<int, float> {
     }
 
     constexpr inline float get_clamped_rotation(const bool &allow_interpolate = false) const {
-        return util::clamp(get_rotation(allow_interpolate), -180, 180);
+        return util::wrap(get_rotation(allow_interpolate), -180, 180);
     }
 
     inline void set_rotation_bound(const float &degrees) {

@@ -490,7 +490,7 @@ struct kinematics_t {
         if (debug_pedantic)
             printf("End rot: %.2f,%.2f,%.2f,%.2f,%.2f\n", rot_out[0], rot_out[1], rot_out[2], rot_out[3], rot_out[4]);
         for (int i = 0; i < segments.size(); i++) {
-            auto wrapped = util::clamp(rot_out[i], -180, 180);
+            auto wrapped = util::wrap(rot_out[i], -180, 180);
             segments[i]->set_rotation_bound(wrapped);
         }
 

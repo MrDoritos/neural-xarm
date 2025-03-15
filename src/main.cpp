@@ -274,7 +274,7 @@ struct kinematics_t {
 
         glm::vec2 prev_origin = target_pl2d;
         std::vector<glm::vec2> new_origins;
-
+ 
         if (debug_pedantic)
             printf("target_pl2d <%.2f,%.2f> target_pl3d <%.2f,%.2f,%.2f> target_real <%.2f,%.2f,%.2f> seg_5 <%.2f,%.2f,%.2f> deg_6: %.2f\n", target_pl2d.x, target_pl2d.y, target_pl3d.x, target_pl3d.y, target_pl3d.z, target_coords.x, target_coords.y, target_coords.z, seg_5.x, seg_5.y, seg_5.z, deg_6);
 

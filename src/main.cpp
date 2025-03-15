@@ -59,9 +59,9 @@ joystick_t *joysticks;
 robot_interface_t *robot_interface;
 gui::frametime_t frametime;
 
-struct shader_materials_t : public shaderProgram_t {
-    shader_materials_t(shaderProgram_t prg)
-    :shaderProgram_t(prg),material(0),light(0) { }
+struct shader_materials_t : public shader_program_t {
+    shader_materials_t(shader_program_t prg)
+    :shader_program_t(prg),material(0),light(0) { }
 
     material_t *material;
     light_t *light;
@@ -88,7 +88,7 @@ struct shader_materials_t : public shaderProgram_t {
     }
 
     void use() override {
-        shaderProgram_t::use();
+        shader_program_t::use();
 
         if (material)
             material->use();
@@ -102,14 +102,14 @@ struct shader_materials_t : public shaderProgram_t {
     }
 };
 
-struct shader_text_t : public shaderProgram_t {
-    shader_text_t(shaderProgram_t prg)
-    :shaderProgram_t(prg),mixFactor(0.0) { }
+struct shader_text_t : public shader_program_t {
+    shader_text_t(shader_program_t prg)
+    :shader_program_t(prg),mixFactor(0.0) { }
 
     float mixFactor;
 
     void use() override {
-        shaderProgram_t::use();
+        shader_program_t::use();
 
         glDisable(GL_DEPTH_TEST);
         glEnable(GL_POLYGON_OFFSET_FILL);
@@ -207,7 +207,7 @@ namespace render {
     }
 
     template<typename T = segment_t>
-    void render_segment(const T* segment, shaderProgram_t *program, camera_t *camera, const bool &allow_interpolate = true) {
+    void render_segment(const T* segment, shader_program_t *program, camera_t *camera, const bool &allow_interpolate = true) {
         if (debug_mode) {
             program->set_camera(camera, glm::mat4(1.0f));
             render_segment_debug(segment, debug_objects, allow_interpolate);
@@ -220,7 +220,7 @@ namespace render {
     }
 
     template<typename T = segment_t>
-    void render_segments(const std::vector<T*> &segments, shaderProgram_t *program, camera_t *camera, const bool &allow_interpolate = true) {
+    void render_segments(const std::vector<T*> &segments, shader_program_t *program, camera_t *camera, const bool &allow_interpolate = true) {
         program->use();
         for (T* segment : segments)
             render_segment(segment, program, camera, allow_interpolate);
@@ -1358,8 +1358,8 @@ int init() {
     textVertexShader = new shader_t(GL_VERTEX_SHADER);
     textFragmentShader = new shader_t(GL_FRAGMENT_SHADER);
 
-    mainProgram = new shader_materials_t(shaderProgram_t(mainVertexShader, mainFragmentShader));
-    textProgram = new shader_text_t(shaderProgram_t(textVertexShader, textFragmentShader));
+    mainProgram = new shader_materials_t(shader_program_t(mainVertexShader, mainFragmentShader));
+    textProgram = new shader_text_t(shader_program_t(textVertexShader, textFragmentShader));
 
     mainTexture = new texture_t();
     textTexture = new texture_t();

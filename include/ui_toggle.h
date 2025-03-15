@@ -9,10 +9,10 @@ struct ui_toggle_t : public ui_element_t {
     bool toggle_state, held, initial_state;
     std::string cached_title;
     ui_text_t *title_text;
-    shaderProgram_t *textProgram;
+    shader_program_t *textProgram;
     texture_t *textTexture;
 
-    ui_toggle_t(GLFWwindow *window, shaderProgram_t *textProgram, texture_t *textTexture, glm::vec4 XYWH, std::string title = std::string(), bool initial_state = false, toggle_callback_t toggle_callback = toggle_callback_t())
+    ui_toggle_t(GLFWwindow *window, shader_program_t *textProgram, texture_t *textTexture, glm::vec4 XYWH, std::string title = std::string(), bool initial_state = false, toggle_callback_t toggle_callback = toggle_callback_t())
     :ui_element_t(window, XYWH),toggle_state(initial_state),
     initial_state(initial_state),held(false),cached_title(title),
     toggle_callback(toggle_callback),textTexture(textTexture),textProgram(textProgram) {

@@ -10,7 +10,7 @@ struct ui_text_t : public ui_element_t {
     int currentX, currentY;
 
     text_parameters *params, *last_used;
-    shaderProgram_t *shader;
+    shader_program_t *shader;
     texture_t *texture;
 
     void string_change() {
@@ -55,7 +55,7 @@ struct ui_text_t : public ui_element_t {
         last_used = 0;
     }
 
-    ui_text_t(GLFWwindow *window, shaderProgram_t *shader, texture_t *texture, glm::vec4 xywh, std::string text = "", callback_t pre_render_callback = callback_t())
+    ui_text_t(GLFWwindow *window, shader_program_t *shader, texture_t *texture, glm::vec4 xywh, std::string text = "", callback_t pre_render_callback = callback_t())
     :ui_element_t(window, xywh) {
         reset();
         params = 0;

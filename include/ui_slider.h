@@ -16,9 +16,9 @@ struct ui_slider_t : public ui_element_t {
     float text_pos_y;
     std::string title_cached;
     texture_t *textTexture;
-    shaderProgram_t *textProgram;
+    shader_program_t *textProgram;
 
-    ui_slider_t(GLFWwindow *window, shaderProgram_t *textProgram, texture_t *textTexture, glm::vec4 XYWH, ui_slider_v min, ui_slider_v max, ui_slider_v value, std::string title = std::string(), bool limit = true, callback_t value_change_callback = callback_t(), bool skip_text = false, bool hidden = false)
+    ui_slider_t(GLFWwindow *window, shader_program_t *textProgram, texture_t *textTexture, glm::vec4 XYWH, ui_slider_v min, ui_slider_v max, ui_slider_v value, std::string title = std::string(), bool limit = true, callback_t value_change_callback = callback_t(), bool skip_text = false, bool hidden = false)
     :ui_element_t(window, XYWH),min(min),max(max),value(value),
     initial_value(value),cursor_drag(false),limit(limit),
     skip_text(skip_text),title_cached(title),

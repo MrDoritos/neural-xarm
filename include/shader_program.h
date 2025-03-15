@@ -8,12 +8,12 @@
 #include "texture.h"
 
 struct material_t {
-    material_t(texture_t *diffuse, texture_t *specular, float gloss)
+    inline material_t(texture_t *diffuse, texture_t *specular, float gloss)
     :diffuse(diffuse),specular(specular),shininess(gloss) { }
     texture_t *diffuse, *specular;
     float shininess;
 
-    void use(int unit = 0) {
+    inline void use(const int &unit = 0) const {
         diffuse->use(unit);
         specular->use(unit + 1);
     }
@@ -21,29 +21,27 @@ struct material_t {
 
 struct light_t {
     using v3 = glm::vec3;
-    light_t(v3 position, v3 ambient, v3 diffuse, v3 specular)
+    inline light_t(v3 position, v3 ambient, v3 diffuse, v3 specular)
     :position(position),ambient(ambient),diffuse(diffuse),specular(specular) { } 
     v3 position, ambient, diffuse, specular;
 };
 
-struct shaderProgram_t {
+struct shader_program_t {
     GLuint programId;
     std::vector<shader_t*> shaders;
     std::unordered_map<std::string, GLint> resolved_locations;
     bool save_locations;
 
-    shaderProgram_t():programId(gluninitialized),save_locations(true) {
-
-    }
+    inline shader_program_t():programId(gluninitialized),save_locations(true) { }
 
     template<typename ...Ts>
-    shaderProgram_t(Ts ...shaders_)
-    :shaderProgram_t(){
+    inline shader_program_t(Ts ...shaders_)
+    :shader_program_t(){
         this->shaders = {shaders_...};
      }
 
-    shaderProgram_t(const shaderProgram_t &prg)
-    :shaderProgram_t() {
+    inline shader_program_t(const shader_program_t &prg)
+    :shader_program_t() {
         this->shaders = prg.shaders;
      }
 
@@ -127,28 +125,5 @@ struct shaderProgram_t {
         glUseProgram(programId);
     }
 
-    bool load() {
-        for (auto *shader : shaders) {
-            assert(shader->isLoaded() && "Shader not loaded\n");
-            assert(shader->shaderId != gluninitialized && "ShaderId not valid\n");
-        }
-
-        programId = glCreateProgram();
-        
-        for (auto *shader : shaders)
-            glAttachShader(programId, shader->shaderId);
-
-        glLinkProgram(programId);
-
-        int success = 0;
-        glGetProgramiv(programId, GL_LINK_STATUS, &success);
-        if (success == GL_FALSE) {
-            char infoLog[513];
-            glGetProgramInfoLog(programId, 512, NULL, infoLog);
-            std::cout << "Error: Linking shader\n" << infoLog << std::endl;
-            return glfail;
-        }
-
-        return glsuccess && get_uniform_locations();
-    }
+    bool load();
 };

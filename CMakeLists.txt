@@ -20,6 +20,7 @@ add_executable(${NEURAL_XARM_NAME}
     ${NEURAL_XARM_SOURCE_DIR}/main.cpp
     ${NEURAL_XARM_SOURCE_DIR}/text.cpp
     ${NEURAL_XARM_SOURCE_DIR}/common.cpp
+    ${NEURAL_XARM_SOURCE_DIR}/camera.cpp
 )
 
 find_path(GL_INCLUDE_DIR GL/gl.h)

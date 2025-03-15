@@ -18,6 +18,8 @@ add_compile_definitions(STB_IMAGE_IMPLEMENTATION)
 
 add_executable(${NEURAL_XARM_NAME}
     ${NEURAL_XARM_SOURCE_DIR}/main.cpp
+    ${NEURAL_XARM_SOURCE_DIR}/text.cpp
+    ${NEURAL_XARM_SOURCE_DIR}/common.cpp
 )
 
 find_path(GL_INCLUDE_DIR GL/gl.h)
@@ -33,7 +35,7 @@ find_library(GLFW_LIBRARY glfw)
 find_library(hidapi_LIBRARY hidapi-libusb)
 find_library(tinyobjloader_LIBRARY tinyobjloader)
 
-include_directories(
+target_include_directories(${NEURAL_XARM_NAME} PUBLIC
     ${NEURAL_XARM_INCLUDE_DIR}
     ${GL_INCLUDE_DIR}
     ${GLES3_INCLUDE_DIR}

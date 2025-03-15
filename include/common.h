@@ -16,28 +16,36 @@
 
 #include <glm/glm.hpp>
 
-using vec3_d = glm::vec<3, double>;
+using vec3_d = glm::dvec3;
 using hrc = std::chrono::high_resolution_clock;
 using tp = std::chrono::time_point<hrc>;
 using dur = std::chrono::duration<double>;
 
-glm::vec<4, int> initial_window;
-glm::vec<4, int> current_window;
-bool fullscreen;
-bool debug_mode = false;
-bool debug_pedantic = false;
-bool debug_ui = false;
-bool model_interpolation = true;
-float mouseSensitivity = 0.05f;
-float preciseSpeed = 0.1f;
-float movementSpeed = 10.0f;
-float rapidSpeed = 20.0f;
-const GLuint gluninitialized = -1, glfail = -1, glsuccess = GL_NO_ERROR, glcaught = 1;
-glm::mat4 viewport_inversion(1.);
-GLFWwindow *window;
-GLint uni_projection, uni_model, uni_norm, uni_view;
-vec3_d robot_target;
-glm::vec4 x_axis(1,0,0,0), y_axis(0,1,0,0), z_axis(0,0,1,0);
+extern glm::ivec4 initial_window;
+extern glm::ivec4 current_window;
+extern bool fullscreen;
+extern bool debug_mode;
+extern bool debug_pedantic;
+extern bool debug_ui;
+extern bool model_interpolation;
+extern float mouseSensitivity;
+extern float preciseSpeed;
+extern float movementSpeed;
+extern float rapidSpeed;
+extern const GLuint gluninitialized;
+extern const GLuint glfail;
+extern const GLuint glsuccess;
+extern const GLuint glcaught;
+extern glm::mat4 viewport_inversion;
+extern GLFWwindow *window;
+extern GLint uni_projection;
+extern GLint uni_model;
+extern GLint uni_norm;
+extern GLint uni_view;
+extern vec3_d robot_target;
+extern glm::vec4 x_axis;
+extern glm::vec4 y_axis;
+extern glm::vec4 z_axis;
 
 void framebuffer_size_callback(GLFWwindow *window, int width, int height);
 void mouse_button_callback(GLFWwindow *window, int button, int action, int mods);
@@ -56,4 +64,3 @@ void set_segments_from_sliders();
 void set_sliders_from_segments();
 void set_robot_from_segments();
 void toggle_fullscreen_state();
-

@@ -19,24 +19,32 @@ set(NEURAL_XARM_NAME neural_xarm)
 set(NEURAL_XARM_FILES shaders assets)
 set(NEURAL_XARM_SOURCE_DIR src)
 set(NEURAL_XARM_INCLUDE_DIR include)
+set(NEURAL_XARM_WIDGETS_LIBRARY widgets)
+set(NEURAL_XARM_RESOURCES_LIBRARY resources)
 
 set(THIRDPARTY_INCLUDE_DIR thirdparty)
 
 add_subdirectory(${THIRDPARTY_INCLUDE_DIR}/tinyobjloader)
 
-add_executable(${NEURAL_XARM_NAME}
-    ${NEURAL_XARM_SOURCE_DIR}/main.cpp
+add_library(${NEURAL_XARM_WIDGETS_LIBRARY}
+    ${NEURAL_XARM_SOURCE_DIR}/ui_element.cpp
+    ${NEURAL_XARM_SOURCE_DIR}/ui_text.cpp
+    ${NEURAL_XARM_SOURCE_DIR}/ui_slider.cpp
+    ${NEURAL_XARM_SOURCE_DIR}/ui_toggle.cpp
+)
+
+add_library(${NEURAL_XARM_RESOURCES_LIBRARY}
     ${NEURAL_XARM_SOURCE_DIR}/text.cpp
-    ${NEURAL_XARM_SOURCE_DIR}/common.cpp
     ${NEURAL_XARM_SOURCE_DIR}/camera.cpp
     ${NEURAL_XARM_SOURCE_DIR}/texture.cpp
     ${NEURAL_XARM_SOURCE_DIR}/shader.cpp
     ${NEURAL_XARM_SOURCE_DIR}/shader_program.cpp
     ${NEURAL_XARM_SOURCE_DIR}/mesh.cpp
-    ${NEURAL_XARM_SOURCE_DIR}/ui_element.cpp
-    ${NEURAL_XARM_SOURCE_DIR}/ui_text.cpp
-    ${NEURAL_XARM_SOURCE_DIR}/ui_slider.cpp
-    ${NEURAL_XARM_SOURCE_DIR}/ui_toggle.cpp
+)
+
+add_executable(${NEURAL_XARM_NAME}
+    ${NEURAL_XARM_SOURCE_DIR}/main.cpp
+    ${NEURAL_XARM_SOURCE_DIR}/common.cpp
 )
 
 find_path(GL_INCLUDE_DIR GL/gl.h)
@@ -52,7 +60,7 @@ find_library(GLFW_LIBRARY glfw)
 find_library(hidapi_LIBRARY hidapi-libusb)
 find_library(tinyobjloader_LIBRARY tinyobjloader)
 
-target_include_directories(${NEURAL_XARM_NAME} PUBLIC
+target_include_directories(${NEURAL_XARM_RESOURCES_LIBRARY} PUBLIC 
     ${NEURAL_XARM_INCLUDE_DIR}
     ${GL_INCLUDE_DIR}
     ${GLES3_INCLUDE_DIR}
@@ -63,11 +71,18 @@ target_include_directories(${NEURAL_XARM_NAME} PUBLIC
     ${THIRDPARTY_INCLUDE_DIR}
 )
 
+target_link_libraries(${NEURAL_XARM_WIDGETS_LIBRARY}
+    ${tinyobjloader_LIBRARY}
+    ${NEURAL_XARM_RESOURCES_LIBRARY}
+)
+
 target_link_libraries(${NEURAL_XARM_NAME}
     ${GL_LIBRARY}
     ${GLFW_LIBRARY}
     ${hidapi_LIBRARY}
     ${tinyobjloader_LIBRARY}
+    ${NEURAL_XARM_WIDGETS_LIBRARY}
+    ${NEURAL_XARM_RESOURCES_LIBRARY}
 )
 
 target_compile_options(${NEURAL_XARM_NAME} PRIVATE

@@ -25,6 +25,7 @@ add_executable(${NEURAL_XARM_NAME}
     ${NEURAL_XARM_SOURCE_DIR}/mesh.cpp
     ${NEURAL_XARM_SOURCE_DIR}/ui_element.cpp
     ${NEURAL_XARM_SOURCE_DIR}/ui_text.cpp
+    ${NEURAL_XARM_SOURCE_DIR}/ui_slider.cpp
 )
 
 find_path(GL_INCLUDE_DIR GL/gl.h)

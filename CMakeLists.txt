@@ -24,10 +24,19 @@ set(THIRDPARTY_INCLUDE_DIR thirdparty)
 
 add_subdirectory(${THIRDPARTY_INCLUDE_DIR}/tinyobjloader)
 
-add_compile_definitions(STB_IMAGE_IMPLEMENTATION=1)
-
 add_executable(${NEURAL_XARM_NAME}
     ${NEURAL_XARM_SOURCE_DIR}/main.cpp
+    ${NEURAL_XARM_SOURCE_DIR}/text.cpp
+    ${NEURAL_XARM_SOURCE_DIR}/common.cpp
+    ${NEURAL_XARM_SOURCE_DIR}/camera.cpp
+    ${NEURAL_XARM_SOURCE_DIR}/texture.cpp
+    ${NEURAL_XARM_SOURCE_DIR}/shader.cpp
+    ${NEURAL_XARM_SOURCE_DIR}/shader_program.cpp
+    ${NEURAL_XARM_SOURCE_DIR}/mesh.cpp
+    ${NEURAL_XARM_SOURCE_DIR}/ui_element.cpp
+    ${NEURAL_XARM_SOURCE_DIR}/ui_text.cpp
+    ${NEURAL_XARM_SOURCE_DIR}/ui_slider.cpp
+    ${NEURAL_XARM_SOURCE_DIR}/ui_toggle.cpp
 )
 
 find_path(GL_INCLUDE_DIR GL/gl.h)
@@ -43,7 +52,7 @@ find_library(GLFW_LIBRARY glfw)
 find_library(hidapi_LIBRARY hidapi-libusb)
 find_library(tinyobjloader_LIBRARY tinyobjloader)
 
-include_directories(
+target_include_directories(${NEURAL_XARM_NAME} PUBLIC
     ${NEURAL_XARM_INCLUDE_DIR}
     ${GL_INCLUDE_DIR}
     ${GLES3_INCLUDE_DIR}

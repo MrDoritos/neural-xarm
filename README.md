@@ -82,7 +82,7 @@ If you have any issues, feel free to submit an issue or contact me.
 - [x] Check origins of model, they are wrong again 
 - [x] Add new dependencies as submodules
 - [x] Integrate CMake into the build process
-- [ ] After CMake, separate the header files
+- [x] After CMake, separate the header files
 - [ ] Maybe add tests to challenge myself
 - [x] Add new screenshot/gif video of the colored segments and new shader
 - [x] Finish movement rewrite

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <glm/gtc/matrix_transform.hpp>
+
 #include "common.h"
 
 namespace util {
@@ -41,7 +43,7 @@ namespace util {
     }
 
     template<typename T = float, typename T2 = T, typename T3 = T>
-    constexpr inline T clamp(const T &v, const T2 &min, const T3 &max) {
+    constexpr inline T wrap(const T &v, const T2 &min, const T3 &max) {
         T ret = v;
         const T r = max - min;
         while (ret < min) ret += r;
@@ -49,6 +51,7 @@ namespace util {
         return ret;
     }
 
+    // Also known as clamp
     template<typename T = float, typename T2 = T, typename T3 = T>
     constexpr inline T clip(const T &v, const T2 &min, const T3 &max) {
         T ret = v;

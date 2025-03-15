@@ -14,13 +14,12 @@ set(THIRDPARTY_INCLUDE_DIR thirdparty)
 
 add_subdirectory(${THIRDPARTY_INCLUDE_DIR}/tinyobjloader)
 
-add_compile_definitions(STB_IMAGE_IMPLEMENTATION)
-
 add_executable(${NEURAL_XARM_NAME}
     ${NEURAL_XARM_SOURCE_DIR}/main.cpp
     ${NEURAL_XARM_SOURCE_DIR}/text.cpp
     ${NEURAL_XARM_SOURCE_DIR}/common.cpp
     ${NEURAL_XARM_SOURCE_DIR}/camera.cpp
+    ${NEURAL_XARM_SOURCE_DIR}/texture.cpp
 )
 
 find_path(GL_INCLUDE_DIR GL/gl.h)

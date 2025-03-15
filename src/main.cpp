@@ -230,7 +230,7 @@ namespace render {
 struct kinematics_t {
     bool solve_inverse(vec3_d coordsIn) {
         auto isnot_real = [](float x){
-            return (isinf(x) || isnan(x));
+            return (std::isinf(x) || std::isnan(x));
         };
 
         auto &segments = visible_segments;

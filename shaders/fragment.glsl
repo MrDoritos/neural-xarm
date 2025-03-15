@@ -32,7 +32,6 @@ void main() {
 
     vec3 l_dir = normalize(l_pos.xyz - worldPos);
     vec3 v_dir = normalize(eyePos - worldPos);
-    vec3 w_dir = normalize(worldPos);
     
     float dotSky = max(dot(l_dir, normalize(normal)), 0.0);
     float dotView = pow(max(1-abs(dot(v_dir, l_dir)), 0.0), material.shininess);

@@ -107,16 +107,34 @@ struct shader_text_t : public shader_program_t {
     :shader_program_t(prg),mixFactor(0.0) { }
 
     float mixFactor;
+    GLint lastUnit = -1;
+    texture_t *lastTexture = nullptr;
+    float lastMixFactor = -2;
+    glm::mat4 lastProjection;
+
+    void set_sampler(const char *name, texture_t *tex, GLint unit = 0) override {
+        //if (lastUnit != unit || lastTexture != tex) {
+            shader_program_t::set_sampler(name, tex, unit);
+        //    lastUnit = unit;
+        //    lastTexture = tex;
+        //}
+    }
 
     void use() override {
         shader_program_t::use();
 
         glDisable(GL_DEPTH_TEST);
-        glEnable(GL_POLYGON_OFFSET_FILL);
-        glDisable(GL_CULL_FACE);        
+        //glEnable(GL_POLYGON_OFFSET_FILL);
+        //glDisable(GL_CULL_FACE);        
 
-        set_m4("projection", glm::mat4(1.) * viewport_inversion);
-        set_f("mixFactor", mixFactor);
+        if (lastProjection != viewport_inversion) {
+            set_m4("projection", glm::mat4(1.) * viewport_inversion);
+            lastProjection = viewport_inversion;
+        }
+        //if (lastMixFactor != mixFactor) {
+            set_f("mixFactor", mixFactor);
+        //    lastMixFactor = mixFactor;
+        //}
     }
 };
 
@@ -1405,7 +1423,7 @@ int init() {
         textProgram->mixFactor
     };
 
-    bool extra_slider_hidden = true;
+    bool extra_slider_hidden = false;
     for (int i = 0; i < (sizeof defaults / sizeof defaults[0]); i++) {
         int stepover = 8;
         if (i == stepover)

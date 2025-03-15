@@ -85,8 +85,16 @@ target_link_libraries(${NEURAL_XARM_NAME}
     ${NEURAL_XARM_RESOURCES_LIBRARY}
 )
 
-target_compile_options(${NEURAL_XARM_NAME} PRIVATE
-    -g
+target_compile_options(${NEURAL_XARM_NAME} PUBLIC
+    -g -O2
+)
+
+target_compile_options(${NEURAL_XARM_RESOURCES_LIBRARY} PUBLIC
+    -g -O2
+)
+
+target_compile_options(${NEURAL_XARM_WIDGETS_LIBRARY} PUBLIC
+    -g -O2
 )
 
 file(COPY ${NEURAL_XARM_FILES} DESTINATION ${CMAKE_BINARY_DIR})

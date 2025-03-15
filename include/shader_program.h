@@ -31,6 +31,7 @@ struct shader_program_t {
     std::vector<shader_t*> shaders;
     std::unordered_map<std::string, GLint> resolved_locations;
     bool save_locations;
+    static GLuint lastProgramId;
 
     inline shader_program_t():programId(gluninitialized),save_locations(true) { }
 
@@ -122,7 +123,10 @@ struct shader_program_t {
     }
 
     virtual void use() {
-        glUseProgram(programId);
+        //if (lastProgramId != programId) {
+            glUseProgram(programId);
+        //    lastProgramId = programId;
+        //}
     }
 
     bool load();

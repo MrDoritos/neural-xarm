@@ -1,5 +1,7 @@
 #include "shader_program.h"
 
+GLuint shader_program_t::lastProgramId = -1;
+
 bool shader_program_t::load() {
     for (auto *shader : shaders) {
         assert(shader->isLoaded() && "Shader not loaded\n");

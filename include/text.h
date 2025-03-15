@@ -17,7 +17,7 @@ struct text_parameters {
 
     text_parameters();
 
-    text_parameters(int count, float scale, float spacing, float padding, float margin);
+    text_parameters(const int &count, const float &scale, const float &spacing, const float &padding, const float &margin);
 
     inline constexpr friend bool operator==(const text_parameters & lhs, const text_parameters & rhs) {
         return std::addressof(lhs) == std::addressof(rhs);
@@ -39,9 +39,13 @@ struct text_parameters {
 struct text_data {
     using vec6 = struct glm::vec<6, float>;
 
-    inline text_data(const glm::vec2 &c, const glm::vec4 &t)
-    :x(c[0]),y(c[1]),u(t[0]),v(t[1]),b(t[2]),a(t[3]){}
-    inline text_data(){}
+    inline text_data(const glm::vec2 &c, const glm::vec4 &t):
+    x(c[0]),y(c[1]),u(t[0]),v(t[1]),b(t[2]),a(t[3]) { }
+    
+    inline text_data() { }
+    
+    inline text_data(const float &x, const float &y, const float &u, const float &v, const float &b, const float &a):
+    x(x),y(y),u(u),v(v),b(b),a(a) { }
 
     union {
         struct {float x, y, u, v, b, a;};
@@ -65,15 +69,15 @@ struct text_t : public text_data {
             data[i++] = v;
     }
 
-    inline text_t(const glm::vec2 &coords, const glm::vec4 &texCoords)
-    :text_data(coords, texCoords) { }
+    inline text_t(const glm::vec2 &coords, const glm::vec4 &texCoords):
+    text_data(coords, texCoords) { }
 
-    inline text_t(float x, float y, float u, float v, float b = 0., float a = 0.)
-    :text_t({x,y},{u,v,b,a}) { }
+    inline text_t(const float &x, const float &y, const float &u, const float &v, const float &b = 0., const float &a = 0.):
+    text_data(x,y,u,v,b,a) { }
 
     text_t() { }
 
     void set_attrib_pointers();
 };
 
-extern void add_rect(text_t *buffer, unsigned int &vertexCount, glm::vec4 XYWH, glm::vec4 UVWH = glm::vec4(0,0,1,1.), bool is_color = false);
+extern void add_rect(text_t *buffer, unsigned int &vertexCount, const glm::vec4 &XYWH, const glm::vec4 &UVWH = glm::vec4(0,0,1,1.), const bool &is_color = false);

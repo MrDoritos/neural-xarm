@@ -27,7 +27,7 @@ text_parameters::text_parameters() {
     scrScaleY = .7;
 }
 
-text_parameters::text_parameters(int count, float scale, float spacing, float padding, float margin)
+text_parameters::text_parameters(const int &count, const float &scale, const float &spacing, const float &padding, const float &margin)
     :text_parameters() {
     texCharacterCountX = count;
     texCharacterCountY = count;
@@ -98,19 +98,20 @@ void text_t::set_attrib_pointers() {
     glEnableVertexAttribArray(1);
 }
 
-void add_rect(text_t *buffer, unsigned int &vertexCount, glm::vec4 XYWH, glm::vec4 UVWH, bool is_color) {
-    float x = XYWH[0], y = XYWH[1], w = XYWH[2], h = XYWH[3];
-    float u = UVWH[0], v = UVWH[1], uw = UVWH[2], vh = UVWH[3];
+void add_rect(text_t *buffer, unsigned int &vertexCount, const glm::vec4 &XYWH, const glm::vec4 &UVWH, const bool &is_color) {
+    const float &x = XYWH.x, &y = XYWH.y, &w = XYWH.z, &h = XYWH.w;
+    const float &u = UVWH.x, &v = UVWH.y, &uw = UVWH.z, &vh = UVWH.w;
 
-    text_t verticies[6] = {
-        {x,y,u,v},
-        {x+w,y,u+uw,v},
-        {x,y+h,u,v+vh},
-        {x+w,y,u+uw,v},
-        {x+w,y+h,u+uw,v+vh},
-        {x,y+h,u,v+vh}
+    const float verticies[6][6] = {
+        {x,y,u,v,0,0},
+        {x+w,y,u+uw,v,0,0},
+        {x,y+h,u,v+vh,0,0},
+        {x+w,y,u+uw,v,0,0},
+        {x+w,y+h,u+uw,v+vh,0,0},
+        {x,y+h,u,v+vh,0,0}
     };
 
+    /*
     for (int i = 0; i < sizeof verticies / sizeof verticies[0]; i++) {
         memcpy(&buffer[vertexCount], &verticies[i], sizeof verticies[0]);
 
@@ -119,4 +120,14 @@ void add_rect(text_t *buffer, unsigned int &vertexCount, glm::vec4 XYWH, glm::ve
 
         vertexCount++;
     }
+    */
+   
+    memcpy(&buffer[vertexCount], &verticies[0], sizeof verticies);
+
+    if (is_color) {
+        for (int i = 0; i < sizeof verticies / sizeof verticies[0]; i++)
+            memcpy(buffer[vertexCount + i].tex_coords_ptr(), &UVWH, sizeof UVWH);
+    }
+
+    vertexCount += 6;
 }

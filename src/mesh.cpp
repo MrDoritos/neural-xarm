@@ -1,3 +1,5 @@
+#include "stl_reader.h"
+#include <tiny_obj_loader.h>
 #include "mesh.h"
 
 mesh_t::mesh_t():

@@ -36,7 +36,9 @@ void main() {
     float dotSky = max(dot(l_dir, normalize(normal)), 0.0);
     float dotView = pow(max(1-abs(dot(v_dir, l_dir)), 0.0), material.shininess);
 
-    vec3 diffuseColor = texture(material.diffuse, texCoord).rgb + color;
+    vec4 diffuseSample = texture(material.diffuse, texCoord);
+
+    vec3 diffuseColor = diffuseSample.rgb + color;
     vec3 specularColor = texture(material.specular, texCoord).rgb + color;    
     
     vec3 sDiffuse = light.diffuse * diffuseColor * dotSky;
@@ -46,5 +48,6 @@ void main() {
     vec3 sMix = sDiffuse + sAmbient + sSpecular;
 
     FragColor.rgb = sMix;
-    FragColor.a = 1.0;
+    //FragColor.a = diffuseSample.a;
+    FragColor.a = 0.5;
 }

@@ -18,6 +18,7 @@ void main() {
     worldPos = pos_4.xyz;
     gl_Position = projection * view * pos_4;
     normal = normalize(norm * aNormal);
-    texCoord = vec2(aTexCoord.x, -aTexCoord.y);
+    //texCoord = vec2(aTexCoord.x, -aTexCoord.y);
+    texCoord = aTexCoord;
     color = aColor;
 }

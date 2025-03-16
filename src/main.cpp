@@ -35,7 +35,7 @@ struct debug_info_t;
 struct joystick_t;
 struct robot_interface_t;
 
-texture_t *textTexture, *mainTexture;
+texture_t *textTexture, *mainTexture, *circleTexture;
 shader_t *mainVertexShader, *mainFragmentShader;
 shader_t *textVertexShader, *textFragmentShader;
 shader_text_t *textProgram;
@@ -69,8 +69,8 @@ struct shader_materials_t : public shader_program_t {
 
     void set_material(material_t *mat) {
         this->material = mat;
-        set_i("material.diffuse", mat->diffuse->textureId);
-        set_i("material.specular", mat->specular->textureId);
+        set_sampler("material.diffuse", mat->diffuse, 0);
+        set_sampler("material.specular", mat->specular, 1);
         set_f("material.shininess", mat->shininess);
     }
 
@@ -91,7 +91,8 @@ struct shader_materials_t : public shader_program_t {
         shader_program_t::use();
 
         if (material)
-            material->use();
+            //material->use();
+            set_material(material);
 
         glEnable(GL_DEPTH_TEST);
         glEnable(GL_POLYGON_OFFSET_FILL);
@@ -141,6 +142,18 @@ struct shader_text_t : public shader_program_t {
 struct debug_object_t : public mesh_t {
     std::vector<std::pair<glm::vec3, glm::vec3>> _lines;
     std::vector<std::pair<glm::vec3, float>> _spheres;
+    std::vector<std::pair<glm::mat4, float>> _circles;
+
+    camera_t *camera;
+    texture_t *circleTexture;
+    shader_program_t *program;
+
+    debug_object_t(camera_t *camera, shader_program_t *program, texture_t *circleTexture):
+            camera(camera),
+            circleTexture(circleTexture),
+            program(program) {
+
+    }
 
     void add_line(glm::vec3 origin, glm::vec3 end) {
         _lines.push_back({origin, end});
@@ -150,24 +163,100 @@ struct debug_object_t : public mesh_t {
         _spheres.push_back({origin, radius});
     }
 
+    void add_circle(glm::mat4 matrix, float radius) {
+        _circles.push_back({matrix, radius});
+    }
+
     void clear() override {
         _lines.clear();
         _spheres.clear();
+        _circles.clear();
 
         mesh_t::clear();
     }
 
+    void add_rect(vertex_t *verts, unsigned int &vertexCount, glm::mat4 matrix, float radius, const glm::vec4 &UVWH) {
+        glm::vec4 fw = { radius,  radius, radius, 1.0f};
+        glm::vec4 bw = {-radius, -radius, -radius, 1.0f};
+        glm::vec3 origin = glm::vec3(matrix[3]);
+        glm::vec4 a = matrix[2] * fw;
+        glm::vec4 d = matrix[2] * bw;
+        glm::vec4 b = matrix[0] * fw;
+        glm::vec4 c = matrix[0] * bw;
+
+        const float &u = UVWH.x, &v = UVWH.y, &uw = UVWH.z, &vh = UVWH.w;
+
+        struct pos {
+            glm::vec3 coords; glm::vec2 tex;
+        };
+
+        pos verticies[6] = {
+            {a, {u,v}},
+            {b, {u+uw,v}},
+            {c, {u,v+vh}},
+            {b, {u+uw,v}},
+            {d, {u+uw,v+vh}},
+            {c, {u,v+vh}}
+        };
+
+        for (int i = 0; i < 6; i++) {
+            verts[vertexCount].vertex = verticies[i].coords + origin;
+            verts[vertexCount].normal = glm::vec3(0.3f,0.3f,0.3f);
+            verts[vertexCount].tex = verticies[i].tex;
+            verts[vertexCount].color = glm::vec3(0.0f);
+            //fprintf(stderr, "%f %f\n", verticies[i].tex[0], verticies[i].tex[1]);
+
+            vertexCount += 1;
+        }
+    }
+
     void render() override {
-        mainProgram->use();
-        mainProgram->set_camera(camera, glm::mat4(1.0f));
+        program->use();
+        program->set_camera(camera, glm::mat4(1.0f));
+
+        //circleTexture->use(0);
+        //program->set_i("material.diffuse", 0);
+
+        for (auto &c : _circles) {
+            vertex_t v[6];
+            unsigned int g = 0;
+
+            add_rect(&v[0], g, c.first, c.second, {0.5f,0.5f,0.5f,0.5f});
+
+            //verticies.insert(verticies.end(), v, v+6);
+            std::copy(v, v+6, std::back_inserter(verticies));
+            vertexCount += 6;
+        }
 
         modified = true;
-        mesh_t::render();
+        //mesh_t::render();
+        this->mesh();
+        //robotMaterial->diffuse = textTexture    ;
+        //mainProgram->set_material(robotMaterial);
+        //textTexture->use(1);
+        //circleTexture->use();
+        //textTexture->use(textTexture->textureId);
+        program->use();
+        glBindVertexArray(vao);
+        //program->set_sampler("material.diffuse", textTexture, 0);
+        //program->set_sampler("material.specular", textTexture, 1);
+        //glActiveTexture(GL_TEXTURE0);
+        //glBindTexture(GL_TEXTURE_2D, textTexture->textureId);
+        //glUniform1i(glGetUniformLocation(program->programId, "material.diffuse"), 0);
+        //glUniform1i(glGetUniformLocation(program->programId, "material.specular"), 0);
+        //program->set_i("material.diffuse", 0);
+        //program->set_i("material.specular", 0);
+        glDrawArrays(GL_TRIANGLES, 0, vertexCount);
+        glBindVertexArray(0);
 
+        auto glv = [](glm::vec3 p) {
+            glVertex3f(p.x, p.y, p.z);
+        };
+        
         glBegin(GL_LINES);
         for (auto &l : _lines) {
-            glVertex3f(l.first.x, l.first.y, l.first.z);
-            glVertex3f(l.second.x, l.second.y, l.second.z);
+            glv(l.first);
+            glv(l.second);
         }
         glEnd();
 
@@ -182,17 +271,13 @@ struct debug_object_t : public mesh_t {
                       v3 = ws - cr - cu, 
                       v4 = ws - cr + cu;
 
-            auto glv = [](glm::vec3 p) {
-                glVertex3f(p.x, p.y, p.z);
-            };
-
             glv(v1);
             glv(v2);
             glv(v3);
             glv(v4);
         }
         glEnd();
-
+        
         this->clear();
     }    
 };
@@ -218,6 +303,7 @@ namespace render {
         debug_objects->add_sphere(origin, segment->model_scale);
         debug_objects->add_sphere(origin + seg_vec, segment->model_scale);
         render_vector(debug_objects, origin, origin + seg_vec);
+        debug_objects->add_circle(glm::translate(glm::mat4(1.0f), origin) * rot_mat, segment->get_length());
 
         auto tran_rot_mat = glm::translate(rot_mat, origin);
 
@@ -1381,13 +1467,14 @@ int init() {
 
     mainTexture = new texture_t();
     textTexture = new texture_t();
+    circleTexture = new texture_t();
 
     robotMaterial = new material_t(mainTexture,mainTexture,1.0f);
 
     uiHandler = new ui_element_t(window, {-1.0f,-1.0f,2.0f,2.0f});
     //uiHandler->add_child(new ui_text_t(window, {0.0,0.0,.1,.1}, "Hello World!"));
     debugInfo = uiHandler->add_child(new ui_text_t(window, textProgram, textTexture, {-1.0f,-1.0f,2.0f,2.0f}, "", update_debug_info));
-    debug_objects = new debug_object_t();
+    debug_objects = new debug_object_t(camera, mainProgram, circleTexture);
     ui_servo_sliders = uiHandler->add_child(new ui_element_t(window, uiHandler->XYWH));
 
     glm::vec4 sliderPos = {0.45, -0.95,0.5,0.1};
@@ -1490,8 +1577,9 @@ void reset() {
 }
 
 int load() {
-    if (mainTexture->generate(glm::vec4(0.0f,0.0f,0.0f,0.0f)) ||
-        textTexture->load("assets/text.png"))
+    if (mainTexture->generate(glm::vec4(0.0f,0.0f,0.0f,1.0f)) ||
+        textTexture->load("assets/text.png") ||
+        circleTexture->load("assets/circle.png"))
         handle_error("Failed to load textures");
 
     if (mainVertexShader->load("shaders/vertex.glsl") ||

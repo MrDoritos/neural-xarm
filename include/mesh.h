@@ -1,8 +1,5 @@
 #pragma once
 
-#include "stl_reader.h"
-#include <tiny_obj_loader.h>
-
 #include "common.h"
 #include "texture.h"
 

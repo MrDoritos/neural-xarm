@@ -238,8 +238,14 @@ struct debug_object_t : public mesh_t {
             glm::vec3 ws = s.first;
             glm::mat4 matrix(1.0);
             matrix = glm::translate(matrix, ws);
-            matrix = glm::rotate(matrix, -glm::radians(camera->yaw+90), glm::vec3(0,1,0));
-            matrix = glm::rotate(matrix, glm::radians(camera->pitch+90), glm::vec3(1,0,0));
+            //matrix *= -camera->get_projection_matrix();
+            glm::mat4 rmatrix(1.0);
+            rmatrix = glm::rotate(rmatrix, -glm::radians(camera->yaw+90), glm::vec3(0,1,0));
+            rmatrix = glm::rotate(rmatrix, glm::radians(camera->pitch+90), glm::vec3(1,0,0));
+            matrix *= rmatrix;
+            //auto to_view = glm::normalize(camera->position - ws);
+            //matrix *= glm::lookAt(glm::vec3{0.0f}, glm::cross(camera->front, -camera->right), -camera->right);
+            //matrix *= glm::lookAt(glm::vec3{0.0f}, -to_view, camera->up);
 
             add_rect(&v[0], g, matrix, s.second * 5, UVWH, COLOR);
 
@@ -1393,14 +1399,26 @@ void update_debug_info() {
         char char_buf[bufsize];
 
         glm::vec3 s3_t = s3->get_segment_vector() + s3->get_origin();
-        
+
         debug_objects->add_sphere(robot_target, s3->model_scale);
 
+        const auto vtos = [](const glm::vec4 &vec) {
+            return std::format("{:>6.2f} {:>6.2f} {:>6.2f} {:>6.2f}\n", vec.x, vec.y, vec.z, vec.w);
+        };
+
+        const auto mtos = [vtos](const glm::mat4 &matrix) {
+            return vtos(matrix[0]) + vtos(matrix[1]) + vtos(matrix[2]) + vtos(matrix[3]);
+        };
+
         snprintf(char_buf, bufsize, 
-        "%.0lf FPS %.2lf ms\nCamera %.2f %.2f %.2f\nFacing %.2f %.2f\nTarget %lf %lf %lf\ns3 %.2f %.2f %.2f\n%s%s%s",
+        "%.0lf FPS %.2lf ms\nCamera %.2f %.2f %.2f\nFacing %.2f %.2f\nView Matrix:\n%s\nProjection Matrix:\n%s\nS3 Model Matrix:\n%s\nInverted S3 Model Matrix:\n%s\nTarget %lf %lf %lf\ns3 %.2f %.2f %.2f\n%s%s%s",
         frametime.get_fps(), frametime.get_ms(), 
         camera->position.x, camera->position.y, camera->position.z,
         camera->yaw,camera->pitch,
+        mtos(camera->get_view_matrix()).c_str(),
+        mtos(camera->get_projection_matrix()).c_str(),
+        mtos(s3->get_model_transform()).c_str(),
+        mtos(glm::transpose(glm::inverse(s3->get_model_transform()))).c_str(),
         robot_target.x, robot_target.y, robot_target.z,
         s3_t.x,s3_t.y,s3_t.z,
         joysticks->debug_info().c_str(),
@@ -1510,7 +1528,7 @@ int init() {
         textProgram->mixFactor
     };
 
-    bool extra_slider_hidden = false;
+    bool extra_slider_hidden = true;
     for (int i = 0; i < (sizeof defaults / sizeof defaults[0]); i++) {
         int stepover = 8;
         if (i == stepover)

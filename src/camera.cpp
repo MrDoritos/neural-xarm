@@ -1,6 +1,10 @@
 #include "camera.h"
+#include "util.h"
 
 void camera_t::calculate_normals() {
+    yaw = util::wrap(yaw, -180, 180);
+    pitch = util::clip(pitch, -89.9f, 89.9f);
+
     front = glm::normalize(glm::vec3(
         std::cos(glm::radians(yaw)) * std::cos(glm::radians(pitch)),
         std::sin(glm::radians(pitch)),
@@ -44,7 +48,7 @@ void camera_t::mouseMove(GLFWwindow *window, double x, double y) {
     yaw += mouseSensitivity * dx;
     pitch += mouseSensitivity * dy;
 
-    pitch = std::max(std::min(pitch, 89.9f), -89.9f);
+    //pitch = std::max(std::min(pitch, 89.9f), -89.9f);
 
     calculate_normals();
 }
@@ -74,6 +78,11 @@ void camera_t::keyboard(GLFWwindow *window, float deltaTime) {
     if (precise) {
         movementFactor = preciseSpeed;
     }
+
+    glm::vec3 front = this->front; front.y = 0;
+    glm::vec3 right = this->right; right.y = 0;
+    front = glm::normalize(front);
+    right = glm::normalize(right);
 
     if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
         position += front * deltaTime * movementFactor;

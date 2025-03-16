@@ -188,7 +188,7 @@ struct debug_object_t : public mesh_t {
         const float &u = UVWH.x, &v = UVWH.y, &uw = UVWH.z, &vh = UVWH.w;
 
         struct pos {
-            glm::vec3 coords; glm::vec2 tex;
+            const glm::vec3 coords; const glm::vec2 tex;
         };
 
         const pos verticies[6] = {

@@ -175,14 +175,15 @@ struct debug_object_t : public mesh_t {
         mesh_t::clear();
     }
 
-    void add_rect(vertex_t *verts, unsigned int &vertexCount, glm::mat4 matrix, float radius, const glm::vec4 &UVWH) {
-        glm::vec4 fw = { radius,  radius, radius, 1.0f};
-        glm::vec4 bw = {-radius, -radius, -radius, 1.0f};
-        glm::vec3 origin = glm::vec3(matrix[3]);
-        glm::vec4 a = matrix[2] * fw;
-        glm::vec4 d = matrix[2] * bw;
-        glm::vec4 b = matrix[0] * fw;
-        glm::vec4 c = matrix[0] * bw;
+    void add_rect(vertex_t *verts, unsigned int &vertexCount, const glm::mat4 &matrix, const float &radius, const glm::vec4 &UVWH) {
+        const glm::vec4 fw = { radius,  radius, radius, 1.0f};
+        const glm::vec4 bw = {-radius, -radius, -radius, 1.0f};
+        const glm::vec3 origin = glm::vec3(matrix[3]);
+        const float fac = sqrt(2.0f);
+        const glm::vec3 a = matrix[2] * fw * fac;
+        const glm::vec3 d = matrix[2] * bw * fac;
+        const glm::vec3 b = matrix[0] * fw * fac;
+        const glm::vec3 c = matrix[0] * bw * fac;
 
         const float &u = UVWH.x, &v = UVWH.y, &uw = UVWH.z, &vh = UVWH.w;
 
@@ -190,7 +191,7 @@ struct debug_object_t : public mesh_t {
             glm::vec3 coords; glm::vec2 tex;
         };
 
-        pos verticies[6] = {
+        const pos verticies[6] = {
             {a, {u,v}},
             {b, {u+uw,v}},
             {c, {u,v+vh}},
@@ -201,10 +202,9 @@ struct debug_object_t : public mesh_t {
 
         for (int i = 0; i < 6; i++) {
             verts[vertexCount].vertex = verticies[i].coords + origin;
-            verts[vertexCount].normal = glm::vec3(0.3f,0.3f,0.3f);
+            verts[vertexCount].normal = matrix[1];
             verts[vertexCount].tex = verticies[i].tex;
             verts[vertexCount].color = glm::vec3(0.0f);
-            //fprintf(stderr, "%f %f\n", verticies[i].tex[0], verticies[i].tex[1]);
 
             vertexCount += 1;
         }
@@ -214,40 +214,27 @@ struct debug_object_t : public mesh_t {
         program->use();
         program->set_camera(camera, glm::mat4(1.0f));
 
-        //circleTexture->use(0);
-        //program->set_i("material.diffuse", 0);
-
+        float l = 0;
         for (auto &c : _circles) {
             vertex_t v[6];
             unsigned int g = 0;
 
-            add_rect(&v[0], g, c.first, c.second, {0.5f,0.5f,0.5f,0.5f});
+            const glm::vec4 UVWH = {0,0,1,1};
+            auto m = c.first;
+            m = glm::translate(m, glm::vec3(0,l+=0.02,0));
+            add_rect(&v[0], g, m, c.second, UVWH);
 
-            //verticies.insert(verticies.end(), v, v+6);
             std::copy(v, v+6, std::back_inserter(verticies));
             vertexCount += 6;
         }
 
+        glDisable(GL_DEPTH_TEST);
         modified = true;
-        //mesh_t::render();
-        this->mesh();
-        //robotMaterial->diffuse = textTexture    ;
-        //mainProgram->set_material(robotMaterial);
-        //textTexture->use(1);
-        //circleTexture->use();
-        //textTexture->use(textTexture->textureId);
-        program->use();
-        glBindVertexArray(vao);
-        //program->set_sampler("material.diffuse", textTexture, 0);
-        //program->set_sampler("material.specular", textTexture, 1);
-        //glActiveTexture(GL_TEXTURE0);
-        //glBindTexture(GL_TEXTURE_2D, textTexture->textureId);
-        //glUniform1i(glGetUniformLocation(program->programId, "material.diffuse"), 0);
-        //glUniform1i(glGetUniformLocation(program->programId, "material.specular"), 0);
-        //program->set_i("material.diffuse", 0);
-        //program->set_i("material.specular", 0);
-        glDrawArrays(GL_TRIANGLES, 0, vertexCount);
-        glBindVertexArray(0);
+        program->set_sampler("material.diffuse", circleTexture, 0);
+        program->set_sampler("material.specular", circleTexture, 1);
+        mesh_t::render();
+        program->set_sampler("material.diffuse", mainTexture, 0);
+        program->set_sampler("material.specular", mainTexture, 1);
 
         auto glv = [](glm::vec3 p) {
             glVertex3f(p.x, p.y, p.z);

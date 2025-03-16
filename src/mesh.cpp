@@ -48,11 +48,11 @@ void mesh_t::mesh() {
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, (void*) (0));
     glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, (void*) (normSize));
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, (void*) (coordSize));
     glEnableVertexAttribArray(2);
-    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, (void*) (normSize + texSize));
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, (void*) (coordSize + normSize));
     glEnableVertexAttribArray(3);
-    glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, stride, (void*) (normSize + texSize + colorSize));
+    glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, stride, (void*) (coordSize + normSize + texSize));
 
     glBindVertexArray(0);
 

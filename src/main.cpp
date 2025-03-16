@@ -175,7 +175,7 @@ struct debug_object_t : public mesh_t {
         mesh_t::clear();
     }
 
-    void add_rect(vertex_t *verts, unsigned int &vertexCount, const glm::mat4 &matrix, const float &radius, const glm::vec4 &UVWH) {
+    void add_rect(vertex_t *verts, unsigned int &vertexCount, const glm::mat4 &matrix, const float &radius, const glm::vec4 &UVWH, const glm::vec3 &color = {0.0f,0.0f,0.0f}) {
         const glm::vec4 fw = { radius,  radius, radius, 1.0f};
         const glm::vec4 bw = {-radius, -radius, -radius, 1.0f};
         const glm::vec3 origin = glm::vec3(matrix[3]);
@@ -188,23 +188,23 @@ struct debug_object_t : public mesh_t {
         const float &u = UVWH.x, &v = UVWH.y, &uw = UVWH.z, &vh = UVWH.w;
 
         struct pos {
-            const glm::vec3 coords; const glm::vec2 tex;
+            const glm::vec3 coords; const glm::vec2 tex; const glm::vec3 color;
         };
 
         const pos verticies[6] = {
-            {a, {u,v}},
-            {b, {u+uw,v}},
-            {c, {u,v+vh}},
-            {b, {u+uw,v}},
-            {d, {u+uw,v+vh}},
-            {c, {u,v+vh}}
+            {a, {u,v}, color},
+            {b, {u+uw,v}, color},
+            {c, {u,v+vh}, color},
+            {b, {u+uw,v}, color},
+            {d, {u+uw,v+vh}, color},
+            {c, {u,v+vh}, color}
         };
 
         for (int i = 0; i < 6; i++) {
             verts[vertexCount].vertex = verticies[i].coords + origin;
             verts[vertexCount].normal = matrix[1];
             verts[vertexCount].tex = verticies[i].tex;
-            verts[vertexCount].color = glm::vec3(0.0f);
+            verts[vertexCount].color = verticies[i].color;
 
             vertexCount += 1;
         }
@@ -228,6 +228,25 @@ struct debug_object_t : public mesh_t {
             vertexCount += 6;
         }
 
+        for (auto &s : _spheres) {
+            vertex_t v[6];
+            unsigned int g = 0;
+
+            const glm::vec4 UVWH = {0,0,1,1};
+            const glm::vec3 COLOR = {0,0,1};
+
+            glm::vec3 ws = s.first;
+            glm::mat4 matrix(1.0);
+            matrix = glm::translate(matrix, ws);
+            matrix = glm::rotate(matrix, -glm::radians(camera->yaw+90), glm::vec3(0,1,0));
+            matrix = glm::rotate(matrix, glm::radians(camera->pitch+90), glm::vec3(1,0,0));
+
+            add_rect(&v[0], g, matrix, s.second * 5, UVWH, COLOR);
+
+            std::copy(v, v+6, std::back_inserter(verticies));
+            vertexCount += 6;
+        }
+
         glDisable(GL_DEPTH_TEST);
         modified = true;
         program->set_sampler("material.diffuse", circleTexture, 0);
@@ -235,36 +254,30 @@ struct debug_object_t : public mesh_t {
         mesh_t::render();
         program->set_sampler("material.diffuse", mainTexture, 0);
         program->set_sampler("material.specular", mainTexture, 1);
+        mainTexture->use();
 
-        auto glv = [](glm::vec3 p) {
+        const auto glv = [](const glm::vec3 &p) {
             glVertex3f(p.x, p.y, p.z);
         };
+
+        const auto glvc = [glv](const glm::vec3 &v, const glm::vec3 &c) {
+            glv(v);
+            glColor4f(c.r, c.g, c.b, 1);
+        };
         
+        glm::vec3 colors[3] = {{1,0,0.},{0,1,0},{0,0,1}};
+        int ic = 0;
+
         glBegin(GL_LINES);
         for (auto &l : _lines) {
-            glv(l.first);
-            glv(l.second);
+            auto c = colors[ic++%3];
+            //glv(l.first);
+            //glv(l.second);
+            glvc(l.first, c);
+            glvc(l.second, c);
         }
         glEnd();
 
-        glBegin(GL_QUADS);
-        for (auto &s : _spheres) {
-            glm::vec3 ws = s.first;
-            float r = s.second * 5;
-            glm::vec3 cr = camera->right * glm::vec3(0.5f) * r;
-            glm::vec3 cu = camera->up * glm::vec3(0.5f) * r;
-            glm::vec3 v1 = ws + cr + cu,
-                      v2 = ws + cr - cu, 
-                      v3 = ws - cr - cu, 
-                      v4 = ws - cr + cu;
-
-            glv(v1);
-            glv(v2);
-            glv(v3);
-            glv(v4);
-        }
-        glEnd();
-        
         this->clear();
     }    
 };

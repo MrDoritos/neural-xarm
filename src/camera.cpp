@@ -11,7 +11,7 @@ void camera_t::calculate_normals() {
         std::sin(glm::radians(yaw)) * std::cos(glm::radians(pitch))
     ));
 
-    right = glm::cross(front, up);
+    right = glm::normalize(glm::cross(front, up));
 }
 
 void camera_t::mousePress(GLFWwindow *window, int button, int action, int mods) {

@@ -26,20 +26,22 @@
 #include "frametime.h"
 #include "util.h"
 #include "segment.h"
+#include "materials.h"
+#include "ui_shader.h"
 
-struct shader_text_t;
-struct shader_materials_t;
+struct RobotShader;
 struct kinematics_t;
 struct debug_object_t;
 struct debug_info_t;
 struct joystick_t;
 struct robot_interface_t;
 
+glm::ivec4 current_window, initial_window;
 texture_t *textTexture, *mainTexture, *circleTexture;
 shader_t *mainVertexShader, *mainFragmentShader;
 shader_t *textVertexShader, *textFragmentShader;
-shader_text_t *textProgram;
-shader_materials_t *mainProgram;
+gui::UIShader *textProgram;
+RobotShader *mainProgram;
 material_t *robotMaterial;
 camera_t *camera;
 segment_t *sBase, *s6, *s5, *s4, *s3, *s2, *s1;
@@ -59,83 +61,22 @@ joystick_t *joysticks;
 robot_interface_t *robot_interface;
 gui::frametime_t frametime;
 
-struct shader_materials_t : public shader_program_t {
-    shader_materials_t(shader_program_t prg)
-    :shader_program_t(prg),material(0),light(0) { }
-
-    material_t *material;
-    light_t *light;
-    glm::vec3 eyePos;
-
-    void set_material(material_t *mat) {
-        this->material = mat;
-        set_sampler("material.diffuse", mat->diffuse, 0);
-        set_sampler("material.specular", mat->specular, 1);
-        set_f("material.shininess", mat->shininess);
-    }
-
-    void set_light(light_t *light) {
-        this->light = light;
-        set_v3("light.position", light->position);
-        set_v3("light.ambient", light->ambient);
-        set_v3("light.diffuse", light->diffuse);
-        set_v3("light.specular", light->specular);
-    }
-
-    void set_eye(glm::vec3 eyePos) {
-        this->eyePos = eyePos;
-        set_v3("eyePos", eyePos);
-    }
+struct RobotShader : public gui::MaterialShader {
+    RobotShader(const gui::MaterialShader &base):gui::MaterialShader(base) { }
+    RobotShader() { }
 
     void use() override {
-        shader_program_t::use();
+        gui::MaterialShader::use();
 
-        if (material)
-            //material->use();
-            set_material(material);
-
+        glEnable(GL_MULTISAMPLE);
         glEnable(GL_DEPTH_TEST);
         glEnable(GL_POLYGON_OFFSET_FILL);
-        glDisable(GL_CULL_FACE);
+        glFrontFace(GL_CCW);
+        glCullFace(GL_BACK);
+        glEnable(GL_CULL_FACE);
         glEnable(GL_ALPHA_TEST);
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    }
-};
-
-struct shader_text_t : public shader_program_t {
-    shader_text_t(shader_program_t prg)
-    :shader_program_t(prg),mixFactor(0.0) { }
-
-    float mixFactor;
-    GLint lastUnit = -1;
-    texture_t *lastTexture = nullptr;
-    float lastMixFactor = -2;
-    glm::mat4 lastProjection;
-
-    void set_sampler(const char *name, texture_t *tex, GLint unit = 0) override {
-        //if (lastUnit != unit || lastTexture != tex) {
-            shader_program_t::set_sampler(name, tex, unit);
-        //    lastUnit = unit;
-        //    lastTexture = tex;
-        //}
-    }
-
-    void use() override {
-        shader_program_t::use();
-
-        glDisable(GL_DEPTH_TEST);
-        //glEnable(GL_POLYGON_OFFSET_FILL);
-        //glDisable(GL_CULL_FACE);        
-
-        if (lastProjection != viewport_inversion) {
-            set_m4("projection", glm::mat4(1.) * viewport_inversion);
-            lastProjection = viewport_inversion;
-        }
-        //if (lastMixFactor != mixFactor) {
-            set_f("mixFactor", mixFactor);
-        //    lastMixFactor = mixFactor;
-        //}
     }
 };
 
@@ -1429,17 +1370,6 @@ void update_debug_info() {
     }
 }
 
-void outputTest() {
-   glBegin(GL_TRIANGLES);
-        glColor3f(1.0f, 0.0f, 0.0f); // Red
-        glVertex3f(-0.6f, -0.4f, 0.0f);
-        glColor3f(0.0f, 1.0f, 0.0f); // Green
-        glVertex3f(0.6f, -0.4f, 0.0f);
-        glColor3f(0.0f, 0.0f, 1.0f); // Blue
-        glVertex3f(0.0f, 0.6f, 0.0f);
-    glEnd();
-}
-
 int init_context() {
     if (!glfwInit())
         handle_error("Failed to initialize GLFW");
@@ -1475,22 +1405,21 @@ int init_context() {
 
 int init() {
     camera = new camera_t();
-    mainVertexShader = new shader_t(GL_VERTEX_SHADER);
-    mainFragmentShader = new shader_t(GL_FRAGMENT_SHADER);
-    textVertexShader = new shader_t(GL_VERTEX_SHADER);
-    textFragmentShader = new shader_t(GL_FRAGMENT_SHADER);
-
-    mainProgram = new shader_materials_t(shader_program_t(mainVertexShader, mainFragmentShader));
-    textProgram = new shader_text_t(shader_program_t(textVertexShader, textFragmentShader));
 
     mainTexture = new texture_t();
     textTexture = new texture_t();
     circleTexture = new texture_t();
-
     robotMaterial = new material_t(mainTexture,mainTexture,1.0f);
 
+    mainVertexShader = new gui::VertexShader;
+    mainFragmentShader = new gui::FragmentShader;
+    textVertexShader = new gui::VertexShader;
+    textFragmentShader = new gui::FragmentShader;
+
+    mainProgram = new RobotShader(gui::MaterialShader(robotMaterial, new light_t({5.0f,15.0f,5.0f},{.5,.5,.5},{0,0,0},{0,0,0}), mainVertexShader, mainFragmentShader));
+    textProgram = new gui::UIShader(textVertexShader, textFragmentShader);
+
     uiHandler = new ui_element_t(window, {-1.0f,-1.0f,2.0f,2.0f});
-    //uiHandler->add_child(new ui_text_t(window, {0.0,0.0,.1,.1}, "Hello World!"));
     debugInfo = uiHandler->add_child(new ui_text_t(window, textProgram, textTexture, {-1.0f,-1.0f,2.0f,2.0f}, "", update_debug_info));
     debug_objects = new debug_object_t(camera, mainProgram, circleTexture);
     ui_servo_sliders = uiHandler->add_child(new ui_element_t(window, uiHandler->XYWH));
@@ -1600,10 +1529,10 @@ int load() {
         circleTexture->load("assets/circle.png"))
         handle_error("Failed to load textures");
 
-    if (mainVertexShader->load("shaders/vertex.glsl") ||
-mainFragmentShader->load("shaders/fragment.glsl") ||
-textVertexShader->load("shaders/text_vertex_shader.glsl") ||
-textFragmentShader->load("shaders/text_fragment_shader.glsl"))
+    if (mainVertexShader->load("assets/shaders/vertex.glsl") ||
+mainFragmentShader->load("assets/shaders/fragment.glsl") ||
+textVertexShader->load("assets/shaders/text_vertex_shader.glsl") ||
+textFragmentShader->load("assets/shaders/text_fragment_shader.glsl"))
         handle_error("Failed to load shaders");
 
     if ((mainProgram->load() ||
@@ -1663,6 +1592,7 @@ textFragmentShader->load("shaders/text_fragment_shader.glsl"))
     reset();
     uiHandler->load();
     //debugInfo->load();
+    framebuffer_size_callback(window, current_window[2], current_window[3]);
 
     joysticks->query_joysticks();
     robot_interface->open(1155, 22352);
@@ -1689,19 +1619,13 @@ int main() {
         robot_interface->update();
 
         mainProgram->use();
-        //mainProgram->set_camera(camera);
 
         glm::vec3 diffuse(slider_diffuse->value), specular(slider_specular->value), ambient(slider_ambient->value);
 
         robotMaterial->shininess = slider_shininess->value;
 
-        mainProgram->set_v3("eyePos", camera->position);
-        mainProgram->set_v3("light.position", glm::vec3(5.0f, 15.0f, 5.0f));
-        mainProgram->set_v3("light.ambient", ambient);
-        mainProgram->set_v3("light.diffuse", diffuse);
-        mainProgram->set_v3("light.specular", specular);
-
-        mainProgram->set_material(robotMaterial);
+        mainProgram->set_eye_position(camera->position);
+        mainProgram->set_light({{5.0f,15.0f,5.0f}, ambient, diffuse, specular});
 
         render::render_segments(visible_segments, mainProgram, camera, model_interpolation);
 
@@ -1748,6 +1672,7 @@ void framebuffer_size_callback(GLFWwindow *window, int width, int height) {
     current_window[2] = width;
     current_window[3] = height;
     glViewport(0, 0, width, height);
+    camera->onFramebuffer(window, width, height);
     uiHandler->onFramebuffer(width, height);
 }
 

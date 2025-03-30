@@ -290,43 +290,77 @@ struct kinematics_t {
         using vec3 = glm::vec<3, fp_t>;
         using vec2 = glm::vec<2, fp_t>;
 
+        /*
+            Assume Y-up       
+        */
+
         std::vector<segment_t*> &segments = visible_segments;
 
         bool calculation_failure = false;
 
-        vec3 target_coords = coordsIn * vec3(1,1,-1);
-        vec2 target_2d(target_coords.x, target_coords.z);
+        vec3 target_3d = coordsIn * vec3(1,1,-1);
+        vec2 target_2d(target_3d.x, target_3d.z);
 
         std::vector<fp_t> segment_rotations;
         std::for_each(segments.begin(), segments.end(), [&segment_rotations](const segment_t *seg) {
             segment_rotations.push_back(seg->get_clamped_rotation<fp_t>(false));
         });
 
-        // solve base rotation
-        vec3 seg_6 = s6->get_origin(false);
-        vec2 seg2d_6(seg_6.x, seg_6.z);
+        /*
+            Solve for the rotation of the base
 
-        vec2 dif_6 = target_2d - seg2d_6;
-        fp_t rad_6 = atan2(dif_6[1], dif_6[0]) - M_PI;
+            We are not concerned with the up axis
+        */
+        vec3 segment_6_3d = s6->get_origin(false);
+        vec2 segment_6_2d(segment_6_3d.x, segment_6_3d.z);
 
-        vec3 seg_5 = s5->get_origin(false);
-        vec3 seg_5_real = glm::vec3(seg_5.x, seg_5.z, seg_5.y);
-        vec3 target_for_calc = target_coords;
+        vec2 magnitude_6 = glm::normalize(target_2d - segment_6_2d);
+        fp_t segment_6_rad = atan2(magnitude_6.y, magnitude_6.x) - M_PI;
 
-        vec3 target_pl3d = util::map_to_xy<fp_t>(target_for_calc, glm::degrees(rad_6), vec3(y_axis), seg_5);
+        /*
+            segment_5_3d is passed as the translation for the map_to_xy
+
+            target and segment 5 can be thought of as being shifted by the
+            same amount, although eventually this translation is not a
+            concern
+        */
+        vec3 segment_5_3d = s5->get_origin(false);
+
+        /*
+            Since all segments beyond the rotating base lie upon the same plane,
+            we can treat the origin of the first servo after the rotating base
+            as being on the same axis as the coordinate target, making
+            calculation easier
+        */
+        vec3 target_pl3d = util::map_to_xy<fp_t>(target_3d, glm::degrees(segment_6_rad), vec3(y_axis), segment_5_3d);
         vec2 target_pl2d(target_pl3d.x, target_pl3d.y);
 
-        vec3 plo3d(0);
-        vec2 plo2d(0);
+        /*
+            Probably residual, but we are unlikely to need to translate the
+            target relative to an existing segment, after the translation in
+            map_to_xy
+        */
+        vec3 target_offset_3d(0);
+        vec2 target_offset_2d(0);
 
+        /*
+            Take the segments that lie on the same plane for calculation
+        */
         std::vector<segment_t*> remaining_segments;
         remaining_segments.assign(segments.begin() + 2, segments.end());
 
+        /*
+            prev_origin is for the loop, all calculations rely on a
+            previous origin
+        */
         vec2 prev_origin = target_pl2d;
+        /*
+            calculated origins end up here. we do not need to calculate the servo angles yet
+        */
         std::vector<vec2> new_origins;
  
         if (debug_pedantic)
-            printf("target_pl2d <%.2f,%.2f> target_pl3d <%.2f,%.2f,%.2f> target_real <%.2f,%.2f,%.2f> seg_5 <%.2f,%.2f,%.2f> deg_6: %.2f\n", target_pl2d.x, target_pl2d.y, target_pl3d.x, target_pl3d.y, target_pl3d.z, target_coords.x, target_coords.y, target_coords.z, seg_5.x, seg_5.y, seg_5.z, glm::degrees(rad_6));
+            printf("target_pl2d <%.2f,%.2f> target_pl3d <%.2f,%.2f,%.2f> target_real <%.2f,%.2f,%.2f> seg_5 <%.2f,%.2f,%.2f> deg_6: %.2f\n", target_pl2d.x, target_pl2d.y, target_pl3d.x, target_pl3d.y, target_pl3d.z, target_3d.x, target_3d.y, target_3d.z, segment_5_3d.x, segment_5_3d.y, segment_5_3d.z, glm::degrees(segment_6_rad));
 
         while (true) {
             if (remaining_segments.size() < 1) {
@@ -344,8 +378,8 @@ struct kinematics_t {
 
             fp_t dist_to_segment = total_length - segment_radius;
             fp_t segment_min = total_length - (segment_radius * 2.0);
-            fp_t dist_origin_to_prev = glm::distance(plo2d, prev_origin);
-            vec2 mag = glm::normalize(prev_origin - plo2d);
+            fp_t dist_origin_to_prev = glm::distance(target_offset_2d, prev_origin);
+            vec2 mag = glm::normalize(prev_origin - target_offset_2d);
             
             seg->debug_color = {0.,1.,0};
             bool skip_optim = false;
@@ -482,45 +516,48 @@ struct kinematics_t {
             if (debug_pedantic)
                 puts("Failed to calculate");
             return glfail;
-        } else {
-            if (new_origins.size() < 1) {
-                if (debug_pedantic)
-                    puts("Not enough origins");
-                return glfail;
-            }
+        }
 
-            fp_t prevrot = 0.0;
-            vec2 prevmag(0.0,1.0);
-            vec2 prev(0.0);
+        if (new_origins.size() < 1) {
+            if (debug_pedantic)
+                puts("Not enough origins");
+            return glfail;
+        }
+
+        fp_t prevrot = 0.0;
+        vec2 prevmag(0.0,1.0);
+        vec2 prev(0.0);
+        
+        new_origins.pop_back();
+        std::reverse(new_origins.begin(), new_origins.end());
+        new_origins.push_back(target_pl2d);
+
+        /*
+            Calculating servo rotation from the origins is completed here
+        */
+        for (int i = 0; i < new_origins.size(); i++) {
+            const vec2 &cur = new_origins[i];
+            vec2 mag = glm::normalize(cur - prev);
+
+            fp_t rad = atan2(mag.x, mag.y) - prevrot;
+
+            if (is_not_real(rad))
+                rad = glm::radians(segment_rotations[i + 2]);
             
-            new_origins.pop_back();
-            std::reverse(new_origins.begin(), new_origins.end());
-            new_origins.push_back(target_pl2d);
+            if (debug_pedantic)
+                printf("servo: %i, rad: %.2f, prevrot: %.2f, cur[0]: %.2f, cur[1]: %.2f, prev[0]: %.2f, prev[1]: %.2f\n", i + 2, rad, prevrot, cur.x, cur.y, prev.x, prev.y);
+            
+            segment_rotations[i + 2] = rad;
 
-            for (int i = 0; i < new_origins.size(); i++) {
-                const vec2 &cur = new_origins[i];
-                vec2 mag = glm::normalize(cur - prev);
-
-                fp_t rad = atan2(mag.x, mag.y) - prevrot;
-
-                if (is_not_real(rad))
-                    rad = glm::radians(segment_rotations[i + 2]);
-                
-                if (debug_pedantic)
-                    printf("servo: %i, rad: %.2f, prevrot: %.2f, cur[0]: %.2f, cur[1]: %.2f, prev[0]: %.2f, prev[1]: %.2f\n", i + 2, rad, prevrot, cur.x, cur.y, prev.x, prev.y);
-                
-                segment_rotations[i + 2] = rad;
-
-                prev = cur;
-                prevmag = mag;
-                prevrot = prevrot + rad;
-            }
+            prev = cur;
+            prevmag = mag;
+            prevrot = prevrot + rad;
         }
 
         if (debug_pedantic)
             printf("Initial rot: %.2f,%.2f,%.2f,%.2f,%.2f\n", segment_rotations[0], segment_rotations[1], segment_rotations[2], segment_rotations[3], segment_rotations[4]);
 
-        segment_rotations[1] = rad_6;
+        segment_rotations[1] = segment_6_rad;
 
         if (debug_pedantic)
             printf("End rot: %.2f,%.2f,%.2f,%.2f,%.2f\n", segment_rotations[0], segment_rotations[1], segment_rotations[2], segment_rotations[3], segment_rotations[4]);

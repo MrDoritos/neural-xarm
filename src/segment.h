@@ -139,8 +139,9 @@ struct segment_T : public robot_servo_T<int, float> {
     inline segment_T(segment_T *parent, mesh_base *mesh, const robot_servo_type &servo_config, const glm::vec3 &rotation_axis, const float &length)
     :robot_servo_type(servo_config),parent(parent),mesh(mesh),rotation_axis(rotation_axis),length(length) { }
 
-    inline constexpr float get_clamped_rotation(const bool &allow_interpolate = false) const {
-        return util::wrap(get_rotation(allow_interpolate), -180, 180);
+    template<typename ROT_T = float>
+    inline constexpr ROT_T get_clamped_rotation(const bool &allow_interpolate = false) const {
+        return util::wrap<ROT_T>(get_rotation(allow_interpolate), -180, 180);
     }
 
     inline void set_rotation_bound(const float &degrees) {

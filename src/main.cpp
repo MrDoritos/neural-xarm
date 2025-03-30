@@ -279,52 +279,55 @@ namespace render {
 }
 
 struct kinematics_t {
-    bool solve_inverse(vec3_d coordsIn) {
-        auto isnot_real = [](float x){
-            return (std::isinf(x) || std::isnan(x));
-        };
+    template<typename T = float>
+    constexpr bool is_not_real(const T &v) {
+        return std::isinf(v) || std::isnan(v);
+    }
 
-        auto &segments = visible_segments;
+    bool solve_inverse(vec3_d coordsIn) {
+        using fp_t = vec3_d::value_type;
+        
+        using vec3 = glm::vec<3, fp_t>;
+        using vec2 = glm::vec<2, fp_t>;
+
+        std::vector<segment_t*> &segments = visible_segments;
 
         bool calculation_failure = false;
 
-        auto target_coords = coordsIn;
-        target_coords.z = -target_coords.z;
-        auto target_2d = glm::vec2(target_coords.x, target_coords.z);
+        vec3 target_coords = coordsIn * vec3(1,1,-1);
+        vec2 target_2d(target_coords.x, target_coords.z);
 
-        float rot_out[5];
-
-        for (int i = 0; i < segments.size(); i++)
-            rot_out[i] = segments[i]->get_clamped_rotation(false);
+        std::vector<fp_t> segment_rotations;
+        std::for_each(segments.begin(), segments.end(), [&segment_rotations](const segment_t *seg) {
+            segment_rotations.push_back(seg->get_clamped_rotation<fp_t>(false));
+        });
 
         // solve base rotation
-        auto seg_6 = s6->get_origin(false);
-        auto seg2d_6 = glm::vec2(seg_6.x, seg_6.z);
+        vec3 seg_6 = s6->get_origin(false);
+        vec2 seg2d_6(seg_6.x, seg_6.z);
 
-        auto dif_6 = target_2d - seg2d_6;
-        auto atan2_6 = atan2(dif_6[1], dif_6[0]);
-        auto norm_6 = atan2_6 / M_PI;
-        auto rot_6 = (norm_6 + 1.0f) / 2.0f;
-        auto deg_6 = rot_6 * 360.0f;
-        auto serv_6 = rot_6;
+        vec2 dif_6 = target_2d - seg2d_6;
+        fp_t atan2_6 = atan2(dif_6[1], dif_6[0]);
+        fp_t norm_6 = atan2_6 / M_PI;
+        fp_t rot_6 = (norm_6 + 1.0) / 2.0;
+        fp_t deg_6 = rot_6 * 360.0;
+        fp_t serv_6 = rot_6;
 
-        glm::vec3 seg_5 = s5->get_origin(false);
-        glm::vec3 seg_5_real = glm::vec3(seg_5.x, seg_5.z, seg_5.y);
-        glm::vec3 target_for_calc = target_coords;
+        vec3 seg_5 = s5->get_origin(false);
+        vec3 seg_5_real = glm::vec3(seg_5.x, seg_5.z, seg_5.y);
+        vec3 target_for_calc = target_coords;
 
-        auto target_pl3d = util::map_to_xy<float>(target_for_calc, deg_6, glm::vec3(y_axis), seg_5);
-        auto target_pl2d = glm::vec2(target_pl3d.x, target_pl3d.y);
-        auto plo3d = glm::vec3(0.0f);
-        auto plo2d = glm::vec2(0.0f);
-        //auto pl3d = glm::vec3(500.0f, 0.0f, 0.0f);
-        //auto pl2d = glm::vec2(pl3d);
-        //auto s2d = glm::vec2(500);
+        vec3 target_pl3d = util::map_to_xy<fp_t>(target_for_calc, deg_6, vec3(y_axis), seg_5);
+        vec2 target_pl2d(target_pl3d.x, target_pl3d.y);
+
+        vec3 plo3d(0);
+        vec2 plo2d(0);
 
         std::vector<segment_t*> remaining_segments;
         remaining_segments.assign(segments.begin() + 2, segments.end());
 
-        glm::vec2 prev_origin = target_pl2d;
-        std::vector<glm::vec2> new_origins;
+        vec2 prev_origin = target_pl2d;
+        std::vector<vec2> new_origins;
  
         if (debug_pedantic)
             printf("target_pl2d <%.2f,%.2f> target_pl3d <%.2f,%.2f,%.2f> target_real <%.2f,%.2f,%.2f> seg_5 <%.2f,%.2f,%.2f> deg_6: %.2f\n", target_pl2d.x, target_pl2d.y, target_pl3d.x, target_pl3d.y, target_pl3d.z, target_coords.x, target_coords.y, target_coords.z, seg_5.x, seg_5.y, seg_5.z, deg_6);
@@ -336,17 +339,17 @@ struct kinematics_t {
                 break;
             }
 
-            auto seg = remaining_segments.back();
-            float segment_radius = seg->get_length();
-            float total_length = 0.0f;
+            segment_t *seg = remaining_segments.back();
+            fp_t segment_radius = seg->get_length();
+            fp_t total_length = 0.0;
 
-            for (auto *x : remaining_segments)
+            for (segment_t *x : remaining_segments)
                 total_length += x->get_length();
 
-            float dist_to_segment = total_length - segment_radius;
-            float segment_min = total_length - (segment_radius * 2);
-            float dist_origin_to_prev = glm::distance<2, float>(plo2d, prev_origin);
-            glm::vec2 mag = glm::normalize(prev_origin - plo2d);
+            fp_t dist_to_segment = total_length - segment_radius;
+            fp_t segment_min = total_length - (segment_radius * 2.0);
+            fp_t dist_origin_to_prev = glm::distance(plo2d, prev_origin);
+            vec2 mag = glm::normalize(prev_origin - plo2d);
             
             seg->debug_color = {0.,1.,0};
             bool skip_optim = false;
@@ -357,24 +360,24 @@ struct kinematics_t {
                 skip_optim = true;
             }
 
-            float equal_mp = ((dist_origin_to_prev * dist_origin_to_prev) -
+            fp_t equal_mp = ((dist_origin_to_prev * dist_origin_to_prev) -
                         (segment_radius * segment_radius) +
                         (dist_to_segment * dist_to_segment)) /
                         (2 * dist_origin_to_prev);
 
-            float rem_dist = dist_origin_to_prev - equal_mp;
-            float rem_min = -segment_radius/2.0f;
-            float rem_retract = 0.0f;
-            float rem_extend = segment_radius * 0.5f;
-            float rem_ex2 = rem_extend * 1.75f;
-            float rem_max = segment_radius * 0.95f;
+            fp_t rem_dist = dist_origin_to_prev - equal_mp;
+            fp_t rem_min = -segment_radius/2.0;
+            fp_t rem_retract = 0.0;
+            fp_t rem_extend = segment_radius * 0.5;
+            fp_t rem_ex2 = rem_extend * 1.75;
+            fp_t rem_max = segment_radius * 0.95;
 
             if (debug_pedantic)
                 printf("servo: %i, rem_dist: %.2f, rem_max: %.2f, equal_mp: %.2f, segment_radius: %.2f, dist_origin_to_prev: %.2f, dist_to_segment: %.2f, total_length: %.2f, prev_origin <%.2f,%.2f>\n", seg->servo_num, rem_dist, rem_max, equal_mp, segment_radius, dist_origin_to_prev, dist_to_segment, total_length, prev_origin.x, prev_origin.y);
 
-            auto new_origin = prev_origin;
+            vec2 new_origin = prev_origin;
 
-            if (dist_to_segment < 0.05f) {
+            if (dist_to_segment < 0.05) {
                 new_origins.push_back(new_origin);
                 if (debug_pedantic)
                     puts("Convergence");
@@ -391,7 +394,7 @@ struct kinematics_t {
 
             if (!skip_optim) {
                 if (segment_radius > dist_origin_to_prev) {
-                    auto v = rem_extend - (segment_radius - dist_origin_to_prev);
+                    fp_t v = rem_extend - (segment_radius - dist_origin_to_prev);
                     equal_mp = dist_origin_to_prev - v;
                     if (debug_pedantic) {
                         seg->debug_color = {1.,0,0};
@@ -417,12 +420,12 @@ struct kinematics_t {
                         puts("Too much leftover length");
                         seg->debug_color = {0.,.5,.5};
                     }
-                    auto r = rem_ex2 - rem_extend;
+                    fp_t r = rem_ex2 - rem_extend;
                     r = (rem_dist - rem_extend) / r;
-                    auto v = r / 2.0f;
+                    fp_t v = r / 2.0;
 
-                    if (v > 0.4f)
-                        v -= (v - 0.38f);
+                    if (v > 0.4)
+                        v -= (v - 0.38);
 
                     equal_mp = dist_origin_to_prev - (v * segment_radius + rem_extend);
                 }
@@ -445,14 +448,14 @@ struct kinematics_t {
             if (debug_pedantic)
                 printf("rem_dist: %.2f, rem_max: %.2f, equal_mp: %.2f, dist_origin_to_prev: %.2f, dist_to_segment: %.2f\n", rem_dist, rem_max, equal_mp, dist_origin_to_prev, dist_to_segment);
 
-            auto mp_vec = mag * equal_mp;
+            vec2 mp_vec = mag * equal_mp;
             //auto n = sqrtf((segment_radius - rem_dist) * (segment_radius - rem_dist));
-            auto n = sqrtf(abs((segment_radius * segment_radius) - (rem_dist * rem_dist)));
-            auto o = atan2(mag.y, mag.x) - (M_PI / 2.0f);
-            auto new_mag = glm::normalize(glm::vec2(cosf(o),sinf(o)));
+            fp_t n = sqrt(abs((segment_radius * segment_radius) - (rem_dist * rem_dist)));
+            fp_t o = atan2(mag.y, mag.x) - (M_PI / 2.0);
+            vec2 new_mag = glm::normalize(vec2(cosf(o),sinf(o)));
             new_origin = mp_vec + (new_mag * n);
-            auto new_origin3d = glm::vec3(new_origin.x, new_origin.y, 0.0f);
-            auto dist_new_prev = glm::distance<2, float>(new_origin, prev_origin);
+            vec3 new_origin3d = vec3(new_origin.x, new_origin.y, 0.0);
+            fp_t dist_new_prev = glm::distance(new_origin, prev_origin);
 
             if (debug_pedantic)
                 printf("mp_vec <%.2f %.2f>, segment_radius: %.2f, rem_dist: %.2f, n: %.2f, o: %.2f, new_mag <%.2f,%.2f>, dist_new_prev: %.2f\n", mp_vec[0], mp_vec[1], segment_radius, rem_dist, n, o, new_mag[0], new_mag[1], dist_new_prev);
@@ -460,7 +463,7 @@ struct kinematics_t {
             if (calculation_failure)
                 seg->debug_color = {1.0,0,0};
 
-            float tolerable_distance = 10.0f;
+            fp_t tolerable_distance = 10.0;
 
             if (abs(dist_new_prev - segment_radius) > tolerable_distance) {
                 if (debug_pedantic)
@@ -468,16 +471,11 @@ struct kinematics_t {
                 calculation_failure = true;
             }
 
-            if (remaining_segments.size() < 1 && glm::distance<2, float>(new_origin, target_pl2d) > tolerable_distance) {
+            if (remaining_segments.size() < 1 && glm::distance(new_origin, target_pl2d) > tolerable_distance) {
                 if (debug_pedantic)
                     puts("Distance to target is too far");
                 calculation_failure = true;
             }
-
-            //if (isnot_real(new_origin.x) || isnot_real(new_origin.y))
-            //    new_origin = prev_origin;//glm::vec2(0.0f);
-
-            nocalc:;
 
             prev_origin = new_origin;
             new_origins.push_back(new_origin);
@@ -495,29 +493,29 @@ struct kinematics_t {
                 return glfail;
             }
 
-            float prevrot = 0.0f;
-            auto prevmag = glm::vec2(0.0f,1.0f);
-            auto prev = glm::vec2(0.0f);
+            fp_t prevrot = 0.0;
+            vec2 prevmag(0.0,1.0);
+            vec2 prev(0.0);
             new_origins.pop_back();
             std::reverse(new_origins.begin(), new_origins.end());
             new_origins.push_back(target_pl2d);
 
             for (int i = 0; i < new_origins.size(); i++) {
-                auto cur = new_origins[i];
+                vec2 cur = new_origins[i];
 
-                auto dif = cur - prev;
-                auto mag = glm::normalize(dif);
+                vec2 dif = cur - prev;
+                vec2 mag = glm::normalize(dif);
 
-                auto servo = segments[i + 2];
-                auto calcmag = mag;
+                segment_t *servo = segments[i + 2];
+                vec2 calcmag = mag;
 
-                auto rot = atan2(calcmag.x, calcmag.y) - prevrot;
+                fp_t rot = atan2(calcmag.x, calcmag.y) - prevrot;
 
-                auto deg = ((glm::degrees(rot)) / 180.0f) * 0.5f + 1.0f;
-                deg *= 360;
+                fp_t deg = ((glm::degrees(rot)) / 180.0) * 0.5 + 1.0;
+                deg *= 360.0;
 
-                if (isnot_real(deg)) {
-                    deg = rot_out[i + 2];
+                if (is_not_real(deg)) {
+                    deg = segment_rotations[i + 2];
                     rot = glm::radians(deg);
                 }
                 
@@ -525,7 +523,7 @@ struct kinematics_t {
                     printf("servo: %i, rot: %.2f, deg: %.2f, prevrot: %.2f, calcmag[0]: %.2f, calcmag[1]: %.2f, cur[0]: %.2f, cur[1]: %.2f, prev[0]: %.2f, prev[1]: %.2f\n", servo->servo_num, rot, deg, prevrot, calcmag.x, calcmag.y, cur.x, cur.y, prev.x, prev.y);
 
                 
-                rot_out[i + 2] = deg;
+                segment_rotations[i + 2] = deg;
 
                 prev = cur;
                 prevmag = mag;
@@ -534,14 +532,15 @@ struct kinematics_t {
         }
 
         if (debug_pedantic)
-            printf("Initial rot: %.2f,%.2f,%.2f,%.2f,%.2f\n", rot_out[0], rot_out[1], rot_out[2], rot_out[3], rot_out[4]);
+            printf("Initial rot: %.2f,%.2f,%.2f,%.2f,%.2f\n", segment_rotations[0], segment_rotations[1], segment_rotations[2], segment_rotations[3], segment_rotations[4]);
 
-        rot_out[1] = serv_6 * 360;
+        segment_rotations[1] = serv_6 * 360.0;
 
         if (debug_pedantic)
-            printf("End rot: %.2f,%.2f,%.2f,%.2f,%.2f\n", rot_out[0], rot_out[1], rot_out[2], rot_out[3], rot_out[4]);
+            printf("End rot: %.2f,%.2f,%.2f,%.2f,%.2f\n", segment_rotations[0], segment_rotations[1], segment_rotations[2], segment_rotations[3], segment_rotations[4]);
+
         for (int i = 0; i < segments.size(); i++) {
-            auto wrapped = util::wrap(rot_out[i], -180, 180);
+            fp_t wrapped = util::wrap(segment_rotations[i], -180.0, 180.0);
             segments[i]->set_rotation_bound(wrapped);
         }
 

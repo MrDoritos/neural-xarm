@@ -307,17 +307,13 @@ struct kinematics_t {
         vec2 seg2d_6(seg_6.x, seg_6.z);
 
         vec2 dif_6 = target_2d - seg2d_6;
-        fp_t atan2_6 = atan2(dif_6[1], dif_6[0]);
-        fp_t norm_6 = atan2_6 / M_PI;
-        fp_t rot_6 = (norm_6 + 1.0) / 2.0;
-        fp_t deg_6 = rot_6 * 360.0;
-        fp_t serv_6 = rot_6;
+        fp_t rad_6 = atan2(dif_6[1], dif_6[0]) - M_PI;
 
         vec3 seg_5 = s5->get_origin(false);
         vec3 seg_5_real = glm::vec3(seg_5.x, seg_5.z, seg_5.y);
         vec3 target_for_calc = target_coords;
 
-        vec3 target_pl3d = util::map_to_xy<fp_t>(target_for_calc, deg_6, vec3(y_axis), seg_5);
+        vec3 target_pl3d = util::map_to_xy<fp_t>(target_for_calc, glm::degrees(rad_6), vec3(y_axis), seg_5);
         vec2 target_pl2d(target_pl3d.x, target_pl3d.y);
 
         vec3 plo3d(0);
@@ -330,7 +326,7 @@ struct kinematics_t {
         std::vector<vec2> new_origins;
  
         if (debug_pedantic)
-            printf("target_pl2d <%.2f,%.2f> target_pl3d <%.2f,%.2f,%.2f> target_real <%.2f,%.2f,%.2f> seg_5 <%.2f,%.2f,%.2f> deg_6: %.2f\n", target_pl2d.x, target_pl2d.y, target_pl3d.x, target_pl3d.y, target_pl3d.z, target_coords.x, target_coords.y, target_coords.z, seg_5.x, seg_5.y, seg_5.z, deg_6);
+            printf("target_pl2d <%.2f,%.2f> target_pl3d <%.2f,%.2f,%.2f> target_real <%.2f,%.2f,%.2f> seg_5 <%.2f,%.2f,%.2f> deg_6: %.2f\n", target_pl2d.x, target_pl2d.y, target_pl3d.x, target_pl3d.y, target_pl3d.z, target_coords.x, target_coords.y, target_coords.z, seg_5.x, seg_5.y, seg_5.z, glm::degrees(rad_6));
 
         while (true) {
             if (remaining_segments.size() < 1) {
@@ -449,9 +445,9 @@ struct kinematics_t {
                 printf("rem_dist: %.2f, rem_max: %.2f, equal_mp: %.2f, dist_origin_to_prev: %.2f, dist_to_segment: %.2f\n", rem_dist, rem_max, equal_mp, dist_origin_to_prev, dist_to_segment);
 
             vec2 mp_vec = mag * equal_mp;
-            //auto n = sqrtf((segment_radius - rem_dist) * (segment_radius - rem_dist));
             fp_t n = sqrt(abs((segment_radius * segment_radius) - (rem_dist * rem_dist)));
-            fp_t o = atan2(mag.y, mag.x) - (M_PI / 2.0);
+            fp_t deg90 = (M_PI / 2.0);
+            fp_t o = atan2(mag.y, mag.x) - deg90;
             vec2 new_mag = glm::normalize(vec2(cosf(o),sinf(o)));
             new_origin = mp_vec + (new_mag * n);
             vec3 new_origin3d = vec3(new_origin.x, new_origin.y, 0.0);
@@ -496,51 +492,41 @@ struct kinematics_t {
             fp_t prevrot = 0.0;
             vec2 prevmag(0.0,1.0);
             vec2 prev(0.0);
+            
             new_origins.pop_back();
             std::reverse(new_origins.begin(), new_origins.end());
             new_origins.push_back(target_pl2d);
 
             for (int i = 0; i < new_origins.size(); i++) {
-                vec2 cur = new_origins[i];
+                const vec2 &cur = new_origins[i];
+                vec2 mag = glm::normalize(cur - prev);
 
-                vec2 dif = cur - prev;
-                vec2 mag = glm::normalize(dif);
+                fp_t rad = atan2(mag.x, mag.y) - prevrot;
 
-                segment_t *servo = segments[i + 2];
-                vec2 calcmag = mag;
-
-                fp_t rot = atan2(calcmag.x, calcmag.y) - prevrot;
-
-                fp_t deg = ((glm::degrees(rot)) / 180.0) * 0.5 + 1.0;
-                deg *= 360.0;
-
-                if (is_not_real(deg)) {
-                    deg = segment_rotations[i + 2];
-                    rot = glm::radians(deg);
-                }
+                if (is_not_real(rad))
+                    rad = glm::radians(segment_rotations[i + 2]);
                 
                 if (debug_pedantic)
-                    printf("servo: %i, rot: %.2f, deg: %.2f, prevrot: %.2f, calcmag[0]: %.2f, calcmag[1]: %.2f, cur[0]: %.2f, cur[1]: %.2f, prev[0]: %.2f, prev[1]: %.2f\n", servo->servo_num, rot, deg, prevrot, calcmag.x, calcmag.y, cur.x, cur.y, prev.x, prev.y);
-
+                    printf("servo: %i, rad: %.2f, prevrot: %.2f, cur[0]: %.2f, cur[1]: %.2f, prev[0]: %.2f, prev[1]: %.2f\n", i + 2, rad, prevrot, cur.x, cur.y, prev.x, prev.y);
                 
-                segment_rotations[i + 2] = deg;
+                segment_rotations[i + 2] = rad;
 
                 prev = cur;
                 prevmag = mag;
-                prevrot = prevrot + rot;
+                prevrot = prevrot + rad;
             }
         }
 
         if (debug_pedantic)
             printf("Initial rot: %.2f,%.2f,%.2f,%.2f,%.2f\n", segment_rotations[0], segment_rotations[1], segment_rotations[2], segment_rotations[3], segment_rotations[4]);
 
-        segment_rotations[1] = serv_6 * 360.0;
+        segment_rotations[1] = rad_6;
 
         if (debug_pedantic)
             printf("End rot: %.2f,%.2f,%.2f,%.2f,%.2f\n", segment_rotations[0], segment_rotations[1], segment_rotations[2], segment_rotations[3], segment_rotations[4]);
 
         for (int i = 0; i < segments.size(); i++) {
-            fp_t wrapped = util::wrap(segment_rotations[i], -180.0, 180.0);
+            fp_t wrapped = util::wrap(glm::degrees(segment_rotations[i]), -180.0, 180.0);
             segments[i]->set_rotation_bound(wrapped);
         }
 

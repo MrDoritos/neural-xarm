@@ -371,30 +371,55 @@ struct kinematics_t {
 
             segment_t *seg = remaining_segments.back();
             fp_t segment_radius = seg->get_length();
+            
+            /*
+                The total_length is the total length of segments remaining
+                that can still have their origin altered. It includes the
+                current segment_radius
+            */
             fp_t total_length = 0.0;
-
             for (segment_t *x : remaining_segments)
                 total_length += x->get_length();
 
+            /*
+                dist_to_segment is the absolute max the rest of the segments
+                can accommodate
+            */
             fp_t dist_to_segment = total_length - segment_radius;
-            fp_t segment_min = total_length - (segment_radius * 2.0);
+            /*
+                How far the previously calculated origin is to the target
+                coordinate
+            */
             fp_t dist_origin_to_prev = glm::distance(target_offset_2d, prev_origin);
+            /*
+                Used later to find the direction between the previous origin
+                and the target point
+            */
             vec2 mag = glm::normalize(prev_origin - target_offset_2d);
             
             seg->debug_color = {0.,1.,0};
-            bool skip_optim = false;
 
-            if (remaining_segments.size() < 3) {
-                if (debug_pedantic)
-                    puts("2 or less segments left");
-                skip_optim = true;
-            }
+            if (remaining_segments.size() < 3 && debug_pedantic)
+                puts("2 or less segments left");
 
+            /*
+                Specifically relating to the radical line,
+                if I recall
+
+                https://en.wikipedia.org/wiki/Radical_axis#Properties
+            */
             fp_t equal_mp = ((dist_origin_to_prev * dist_origin_to_prev) -
                         (segment_radius * segment_radius) +
                         (dist_to_segment * dist_to_segment)) /
                         (2 * dist_origin_to_prev);
 
+            /*
+                These are values from 0-2 relating to the
+                intersection of two circles
+
+                This is how I can sort of alter the behavior
+                of the robot's movement
+            */
             fp_t rem_dist = dist_origin_to_prev - equal_mp;
             fp_t rem_min = -segment_radius/2.0;
             fp_t rem_retract = 0.0;
@@ -407,6 +432,9 @@ struct kinematics_t {
 
             vec2 new_origin = prev_origin;
 
+            /*
+                I don't exactly understand, other than I detect convergence
+            */
             if (dist_to_segment < 0.05) {
                 new_origins.push_back(new_origin);
                 if (debug_pedantic)
@@ -414,6 +442,9 @@ struct kinematics_t {
                 break;
             }
 
+            /*
+                I think this occurs also when it's out of bounds, not sure
+            */
             if (rem_dist > rem_max) {
                 if (debug_pedantic) {
                     puts("Not enough overlap");
@@ -422,7 +453,11 @@ struct kinematics_t {
                 }
             }
 
-            if (!skip_optim) {
+            /*
+                If there is enough segments left, we can alter the intersection
+                of the two circles. We can effectively change the angle of the servo
+            */
+            if (remaining_segments.size() > 2) {
                 if (segment_radius > dist_origin_to_prev) {
                     fp_t v = rem_extend - (segment_radius - dist_origin_to_prev);
                     equal_mp = dist_origin_to_prev - v;
@@ -478,13 +513,21 @@ struct kinematics_t {
             if (debug_pedantic)
                 printf("rem_dist: %.2f, rem_max: %.2f, equal_mp: %.2f, dist_origin_to_prev: %.2f, dist_to_segment: %.2f\n", rem_dist, rem_max, equal_mp, dist_origin_to_prev, dist_to_segment);
 
+            /*
+                Calculate the magnitude (rotation) with the new circle intersection
+            */
             vec2 mp_vec = mag * equal_mp;
             fp_t n = sqrt(abs((segment_radius * segment_radius) - (rem_dist * rem_dist)));
             fp_t deg90 = (M_PI / 2.0);
             fp_t o = atan2(mag.y, mag.x) - deg90;
             vec2 new_mag = glm::normalize(vec2(cosf(o),sinf(o)));
+
+            /*
+                This is the new origin calculated with the rotation
+            */
             new_origin = mp_vec + (new_mag * n);
             vec3 new_origin3d = vec3(new_origin.x, new_origin.y, 0.0);
+
             fp_t dist_new_prev = glm::distance(new_origin, prev_origin);
 
             if (debug_pedantic)
@@ -495,12 +538,18 @@ struct kinematics_t {
 
             fp_t tolerable_distance = 10.0;
 
+            /*
+                We can detect if our math sucks
+            */
             if (abs(dist_new_prev - segment_radius) > tolerable_distance) {
                 if (debug_pedantic)
                     puts("Distance to prev is too different");
                 calculation_failure = true;
             }
 
+            /*
+                Too far and no segments remain
+            */
             if (remaining_segments.size() < 1 && glm::distance(new_origin, target_pl2d) > tolerable_distance) {
                 if (debug_pedantic)
                     puts("Distance to target is too far");
@@ -512,12 +561,18 @@ struct kinematics_t {
             remaining_segments.pop_back();
         }
 
+        /*
+            Usually triggered by the target being too far
+        */
         if (calculation_failure) {
             if (debug_pedantic)
                 puts("Failed to calculate");
             return glfail;
         }
 
+        /*
+            This probably doesn't happen, but just in case
+        */
         if (new_origins.size() < 1) {
             if (debug_pedantic)
                 puts("Not enough origins");
@@ -525,7 +580,6 @@ struct kinematics_t {
         }
 
         fp_t prevrot = 0.0;
-        vec2 prevmag(0.0,1.0);
         vec2 prev(0.0);
         
         new_origins.pop_back();
@@ -534,15 +588,18 @@ struct kinematics_t {
 
         /*
             Calculating servo rotation from the origins is completed here
+
+            i+2 because we start at the 3rd servo and iterate towards the
+            6th servo
         */
         for (int i = 0; i < new_origins.size(); i++) {
             const vec2 &cur = new_origins[i];
-            vec2 mag = glm::normalize(cur - prev);
+            vec2 mag = glm::normalize(cur - prev); // direction
 
-            fp_t rad = atan2(mag.x, mag.y) - prevrot;
+            fp_t rad = atan2(mag.x, mag.y) - prevrot; // angle
 
             if (is_not_real(rad))
-                rad = glm::radians(segment_rotations[i + 2]);
+                rad = glm::radians(segment_rotations[i + 2]); // we should get real numbers but in case we dont
             
             if (debug_pedantic)
                 printf("servo: %i, rad: %.2f, prevrot: %.2f, cur[0]: %.2f, cur[1]: %.2f, prev[0]: %.2f, prev[1]: %.2f\n", i + 2, rad, prevrot, cur.x, cur.y, prev.x, prev.y);
@@ -550,13 +607,14 @@ struct kinematics_t {
             segment_rotations[i + 2] = rad;
 
             prev = cur;
-            prevmag = mag;
             prevrot = prevrot + rad;
         }
 
-        if (debug_pedantic)
-            printf("Initial rot: %.2f,%.2f,%.2f,%.2f,%.2f\n", segment_rotations[0], segment_rotations[1], segment_rotations[2], segment_rotations[3], segment_rotations[4]);
+        /*
+            The algorithm is done by this point
 
+            Now we set the program state
+        */
         segment_rotations[1] = segment_6_rad;
 
         if (debug_pedantic)

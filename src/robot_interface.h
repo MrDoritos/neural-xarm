@@ -4,7 +4,7 @@
 #include "segment.h"
 #include <hidapi/hidapi.h>
 
-//namespace {
+namespace robot {
 
 struct RobotInterface {
     using durl = std::chrono::duration<long, std::milli>;
@@ -15,11 +15,11 @@ struct RobotInterface {
     bool virtual_output = false;
     unsigned short vendor_id, product_id;
 
-    inline RobotInterface(unsigned short vendor_id, unsigned short product_id, const wchar_t *serial_number_w = nullptr, bool permit_virtual = false);
+    RobotInterface(unsigned short vendor_id, unsigned short product_id, const wchar_t *serial_number_w = nullptr, bool permit_virtual = false);
 
-    inline RobotInterface(bool permit_virtual = false); 
+    RobotInterface(bool permit_virtual = false); 
 
-    inline ~RobotInterface();
+    ~RobotInterface();
 
     template<typename RB, 
              typename PERIOD_T = int,
@@ -107,4 +107,4 @@ struct RobotInterface {
     void servos_off();
 };
 
-//}
+}

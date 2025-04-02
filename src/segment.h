@@ -5,6 +5,8 @@
 
 struct mesh_t;
 
+namespace robot {
+
 template<typename SERVO_T = int, typename T = float>
 struct robot_servo_T {
     inline robot_servo_T() {}
@@ -132,11 +134,11 @@ struct robot_servo_T {
 using robot_servo_t = robot_servo_T<int, float>;
 
 template<typename mesh_base = mesh_t/*, typename robot_servo_type_T = robot_servo_T<int, float>*/>
-struct segment_T : public robot_servo_T<int, float> {
+struct SegmentT : public robot_servo_T<int, float> {
     using robot_servo_type = robot_servo_T<int, float>;
-    segment_T() {}
+    SegmentT() {}
 
-    inline segment_T(segment_T *parent, mesh_base *mesh, const robot_servo_type &servo_config, const glm::vec3 &rotation_axis, const float &length)
+    inline SegmentT(SegmentT *parent, mesh_base *mesh, const robot_servo_type &servo_config, const glm::vec3 &rotation_axis, const float &length)
     :robot_servo_type(servo_config),parent(parent),mesh(mesh),rotation_axis(rotation_axis),length(length) { }
 
     template<typename ROT_T = float>
@@ -213,10 +215,12 @@ struct segment_T : public robot_servo_T<int, float> {
 
     float model_scale = 0.1;
     glm::vec3 rotation_axis;
-    segment_T<> *parent;
+    SegmentT<> *parent;
     glm::vec3 debug_color;
     float length;
     mesh_base *mesh;
 };
 
-using segment_t = segment_T<>;
+using Segment = robot::SegmentT<>;
+
+}

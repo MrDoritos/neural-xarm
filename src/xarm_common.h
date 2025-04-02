@@ -1,7 +1,6 @@
 #pragma once
 
 #include "common.h"
-#include "segment.h"
 #include "camera.h"
 #include "texture.h"
 #include "mesh.h"
@@ -17,12 +16,21 @@
 #include "segment.h"
 #include "materials.h"
 
+namespace robot {
+    struct RobotInterface;
+    struct Kinematics;
+    struct Joystick;
+    struct JoystickDevice;
+}
+
+#include "robot_interface.h"
+#include "joystick.h"
+#include "segment.h"
+#include "kinematics.h"
+
 struct RobotShader;
-struct kinematics_t;
 struct debug_object_t;
 struct debug_info_t;
-struct joystick_t;
-struct robot_interface_t;
 
 namespace {
     glm::ivec4 current_window, initial_window;
@@ -33,10 +41,10 @@ namespace {
     RobotShader *mainProgram;
     material_t *robotMaterial;
     camera_t *camera;
-    segment_t *sBase, *s6, *s5, *s4, *s3, *s2, *s1;
-    std::vector<segment_t*> segments;
-    std::vector<segment_t*> visible_segments;
-    std::vector<segment_t*> servo_segments;
+    robot::Segment *sBase, *s6, *s5, *s4, *s3, *s2, *s1;
+    std::vector<robot::Segment*> segments;
+    std::vector<robot::Segment*> visible_segments;
+    std::vector<robot::Segment*> servo_segments;
     std::vector<mesh_t*> meshes;
     debug_object_t *debug_objects;
     ui_text_t *debugInfo;
@@ -45,9 +53,9 @@ namespace {
     std::vector<ui_slider_t*> slider_whatever;
     std::vector<ui_slider_t*> servo_sliders;
     ui_element_t *uiHandler, *ui_servo_sliders;
-    kinematics_t *kinematics;
-    joystick_t *joysticks;
-    robot_interface_t *robot_interface;
+    robot::Kinematics *kinematics;
+    robot::Joystick *joysticks;
+    robot::RobotInterface *robot_interface;
     gui::frametime_t frametime;
     //void reset();
     //void toggle_fullscreen_state();

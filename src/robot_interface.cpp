@@ -2,7 +2,7 @@
 #include "xarm_common.h"
 #include <unistd.h>
 
-//namespace {
+namespace robot {
 
 RobotInterface::RobotInterface(unsigned short vendor_id, unsigned short product_id, const wchar_t *serial_number_w, bool permit_virtual)
         :vendor_id(vendor_id),
@@ -24,9 +24,9 @@ void RobotInterface::update() {
     if (!device && !virtual_output)
         return;
 
-    using sv_t = segment_t::servo_type;
-    using tp_t = segment_t::tp;
-    using clk_t = segment_t::clk;
+    using sv_t = Segment::servo_type;
+    using tp_t = Segment::tp;
+    using clk_t = Segment::clk;
     using pair_t = std::pair<sv_t, sv_t>;
 
     static tp_t last_batch = clk_t::now();
@@ -153,7 +153,7 @@ void RobotInterface::read_all(bool set_pos) {
 
     count = ret[4];
 
-    auto now_time = segment_t::clk::now();
+    auto now_time = Segment::clk::now();
     for (int i = 0; i < count; i++) {
         auto *seg = servo_segments[i];
         int index = 5 + 3 * i;
@@ -222,4 +222,4 @@ std::string RobotInterface::get_debug_info() {
     return ret;
 }
 
-//}
+}

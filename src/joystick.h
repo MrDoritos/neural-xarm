@@ -7,13 +7,12 @@
 #include "kinematics.h"
 #include <mutex>
 
-namespace {
+namespace robot {
 
 struct JoystickDevice {
-    inline JoystickDevice(int jid)
-        :JoystickDevice(get_device(jid).second) { }
+    JoystickDevice(int jid);
 
-    inline JoystickDevice() { }
+    JoystickDevice();
 
     int axis_count, button_count, jid;
     std::string guid, name, gp_name;
@@ -42,10 +41,7 @@ struct Joystick {
 
     static std::map<int, std::string> button_mapping, axis_mapping;
 
-    inline Joystick(RobotInterface *robot_interface, camera_t *camera, Kinematics *kinematics)
-        :robot_interface(robot_interface),
-         camera(camera),
-         kinematics(kinematics) { }
+    Joystick(RobotInterface *robot_interface, camera_t *camera, Kinematics *kinematics);
 
     template<typename T = double, int c = 3, typename vec = glm::vec<c, T>>
     inline vec scale_axes(const vec &in) {

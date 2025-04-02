@@ -8,6 +8,17 @@
 #include <glm/glm.hpp>
 #include <glm/gtx/string_cast.hpp>
 
+namespace robot {
+
+JoystickDevice::JoystickDevice() {
+
+}
+
+JoystickDevice::JoystickDevice(int jid)
+        :JoystickDevice(get_device(jid).second) { 
+
+}
+
 int JoystickDevice::get_button(int button) {
     if (state.buttons[button]) {
         if (held_buttons[button])
@@ -101,6 +112,13 @@ std::map<int, std::string> Joystick::axis_mapping = {
     {GLFW_GAMEPAD_AXIS_LEFT_TRIGGER, "Left Trig"},
     {GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER, "Right Trig"}
 };
+
+Joystick::Joystick(RobotInterface *robot_interface, camera_t *camera, Kinematics *kinematics)
+        :robot_interface(robot_interface),
+         camera(camera),
+         kinematics(kinematics) {
+
+}
 
 void Joystick::update(double delta_time) {
     GLFWgamepadstate p;
@@ -384,4 +402,6 @@ std::string Joystick::get_debug_info() {
         }
     }   
     return info;
+}
+
 }

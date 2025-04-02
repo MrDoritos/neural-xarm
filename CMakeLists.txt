@@ -19,6 +19,10 @@ add_subdirectory(${NEURAL_XARM_SOURCE_DIR}/${GUILIB_LIBRARY})
 
 add_executable(${NEURAL_XARM_NAME}
     ${NEURAL_XARM_SOURCE_DIR}/main.cpp
+    ${NEURAL_XARM_SOURCE_DIR}/segment.cpp
+    ${NEURAL_XARM_SOURCE_DIR}/robot_interface.cpp
+    ${NEURAL_XARM_SOURCE_DIR}/joystick.cpp
+    ${NEURAL_XARM_SOURCE_DIR}/kinematics.cpp
 )
 
 find_path(hidapi_INCLUDE_DIR hidapi/hidapi.h)
@@ -37,6 +41,9 @@ target_link_libraries(${NEURAL_XARM_NAME}
 
 target_compile_options(${NEURAL_XARM_NAME} PUBLIC
     -g #-O2
+    #-v 
+    #-Q
+    #-ftime-report
 )
 
 add_custom_command(TARGET ${NEURAL_XARM_NAME} POST_BUILD

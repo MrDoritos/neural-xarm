@@ -357,7 +357,7 @@ std::string segment_debug_info() {
     ret += std::format("{:>7} {: >12s} {: >13s}\n", "Servos:", "Interpolated", "Immediate");
 
     auto get_segment = [&](robot::Segment *seg) {
-        return std::format("{:>3}: {:>9.2f} {:>5} {:>7.2f} {:>5}\n", seg->servo_num, seg->get_servo_interpolated_degrees(), seg->get_servo_interpolated(), seg->get_servo_degrees(), seg->get_servo());
+        return std::format("{:>3}: {:>9.2f} {:>5} {:>7.2f} {:>5} force {:>5.2f} total {:>5.2f}\n", seg->servo_num, seg->get_servo_interpolated_degrees(), seg->get_servo_interpolated(), seg->get_servo_degrees(), seg->get_servo(), seg->get_self_force(), seg->get_total_force());
     };
 
     for (auto *seg : servo_segments)
@@ -384,14 +384,10 @@ void update_debug_info() {
         };
 
         snprintf(char_buf, bufsize, 
-        "%.0lf FPS %.2lf ms\nCamera %.2f %.2f %.2f\nFacing %.2f %.2f\nView Matrix:\n%s\nProjection Matrix:\n%s\nS3 Model Matrix:\n%s\nInverted S3 Model Matrix:\n%s\nTarget %lf %lf %lf\ns3 %.2f %.2f %.2f\n%s%s%s",
+        "%.0lf FPS %.2lf ms\nCamera %.2f %.2f %.2f\nFacing %.2f %.2f\nTarget %lf %lf %lf\ns3 %.2f %.2f %.2f\n%s%s%s",
         frametime.get_fps(), frametime.get_ms(), 
         camera->position.x, camera->position.y, camera->position.z,
         camera->yaw,camera->pitch,
-        mtos(camera->get_view_matrix()).c_str(),
-        mtos(camera->get_projection_matrix()).c_str(),
-        mtos(s3->get_model_transform()).c_str(),
-        mtos(glm::transpose(glm::inverse(s3->get_model_transform()))).c_str(),
         robot_target.x, robot_target.y, robot_target.z,
         s3_t.x,s3_t.y,s3_t.z,
         joysticks->get_debug_info().c_str(),
@@ -564,9 +560,9 @@ int load() {
         handle_error("Failed to load textures");
 
     if (mainVertexShader->load("assets/shaders/vertex.glsl") ||
-mainFragmentShader->load("assets/shaders/fragment.glsl") ||
-textVertexShader->load("assets/shaders/text_vertex_shader.glsl") ||
-textFragmentShader->load("assets/shaders/text_fragment_shader.glsl"))
+        mainFragmentShader->load("assets/shaders/fragment.glsl") ||
+        textVertexShader->load("assets/shaders/text_vertex_shader.glsl") ||
+        textFragmentShader->load("assets/shaders/text_fragment_shader.glsl"))
         handle_error("Failed to load shaders");
 
     if ((mainProgram->load() ||
@@ -606,14 +602,20 @@ textFragmentShader->load("assets/shaders/text_fragment_shader.glsl"))
         { 1, 200, 850, dhome, dpos, drp, 641.0f, dconv } // gripper
     };
 
+    /*
+        LX-15D  - 15.0 kg/cm @ 6v, 17 kg/cm @ 7.4v
+        LX-225  - 25.0 kg/cm @ 7.4v
+        Gripper - 16.0 kg/cm @ 7.4v    
+    */
+
     robot::Segment segment_vals[7] = {
-        {nullptr, meshes[0], servo_vals[0], z_axis, 46.19},
-        {sBase, meshes[1], servo_vals[1], z_axis, 35.98},
-        {s6, meshes[2], servo_vals[2], y_axis, 100.0},
-        {s5, meshes[3], servo_vals[3], y_axis, 96.0},
-        {s4, meshes[4], servo_vals[4], y_axis, 150.0},
-        {nullptr, nullptr, servo_vals[5], z_axis, 0},
-        {nullptr, nullptr, servo_vals[6], z_axis, 0}
+        {nullptr,        s6,  meshes[0], servo_vals[0], z_axis, 46.19, 0.5, 0.0 },   // 
+        {sBase  ,        s5,  meshes[1], servo_vals[1], z_axis, 35.98, 0.2, 15.0},   // 6
+        {s6     ,        s4,  meshes[2], servo_vals[2], y_axis, 100.0, 0.2, 25.0},   // 5
+        {s5     ,        s3,  meshes[3], servo_vals[3], y_axis, 96.0 , 0.2, 15.0},   // 4
+        {s4     ,        s2,  meshes[4], servo_vals[4], y_axis, 150.0, 0.2, 15.0},   // 3
+        {nullptr,        s1,    nullptr, servo_vals[5], z_axis, 0    , 0.2, 15.0},   // 2
+        {nullptr,   nullptr,    nullptr, servo_vals[6], z_axis, 0    , 1.0, 15.0}    // 1
     };
 
     for (int i = 0; i < sizeof mesh_locs / sizeof mesh_locs[0]; i++)

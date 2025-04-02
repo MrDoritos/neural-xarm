@@ -138,8 +138,15 @@ struct SegmentT : public robot_servo_T<int, float> {
     using robot_servo_type = robot_servo_T<int, float>;
     SegmentT() {}
 
-    inline SegmentT(SegmentT *parent, mesh_base *mesh, const robot_servo_type &servo_config, const glm::vec3 &rotation_axis, const float &length)
-    :robot_servo_type(servo_config),parent(parent),mesh(mesh),rotation_axis(rotation_axis),length(length) { }
+    inline SegmentT(SegmentT *parent, SegmentT *child, mesh_base *mesh, const robot_servo_type &servo_config, const glm::vec3 &rotation_axis, const float &length, const float &mass, const float &torque)
+           :robot_servo_type(servo_config),
+            parent(parent),
+            child(child),
+            mesh(mesh),
+            rotation_axis(rotation_axis),
+            length(length),
+            mass(mass),
+            torque(torque) { }
 
     template<typename ROT_T = float>
     inline constexpr ROT_T get_clamped_rotation(const bool &allow_interpolate = false) const {
@@ -213,11 +220,46 @@ struct SegmentT : public robot_servo_T<int, float> {
         return parent->get_segment_vector(allow_interpolate) + parent->get_origin(allow_interpolate);
     }
 
+    inline constexpr glm::vec3 get_midpoint(const bool &allow_interpolate = true) const {
+        return get_segment_vector(allow_interpolate) * 0.5f;
+    }
+
+    /*
+        kg*cm
+    */
+    inline constexpr float get_self_force(const bool &allow_interpolate = true) const {
+        auto s_v = get_segment_vector(allow_interpolate);
+        auto s_n = glm::normalize(s_v);
+        float fac = 1.0-fabs(s_n[1]);
+        return (length/10.0/2.0) * (fac * mass);
+    }
+
+    /*
+        kg*cm
+    */
+    inline constexpr float get_total_force(const bool &allow_interpolate = true, float start_length = 0, float start_mass = 0) const {
+        auto s_f = get_self_force(allow_interpolate);
+        auto s_v = get_segment_vector(allow_interpolate);
+        auto s_n = glm::normalize(s_v);
+        float horizontal_distance = (1.0-fabs(s_n[1])) * length;
+
+        if (util::is_not_real(horizontal_distance))
+            horizontal_distance = 0.0;
+
+        float total_horizontal = start_length + horizontal_distance;
+        float total_mass = start_mass + mass;
+
+        if (child)
+            return child->get_total_force(allow_interpolate, total_horizontal, total_mass);
+        
+        return (total_horizontal / 10.0 / 2.0) * (total_mass);
+    }
+
     float model_scale = 0.1;
     glm::vec3 rotation_axis;
-    SegmentT<> *parent;
+    SegmentT<> *parent, *child;
     glm::vec3 debug_color;
-    float length;
+    float length, mass, torque;
     mesh_base *mesh;
 };
 

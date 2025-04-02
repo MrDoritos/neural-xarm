@@ -7,6 +7,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include "xarm_common.h"
+#include "primitives.h"
 
 using namespace robot;
 
@@ -33,6 +34,7 @@ struct debug_object_t : public mesh_t {
     std::vector<std::pair<glm::vec3, glm::vec3>> _lines;
     std::vector<std::pair<glm::vec3, float>> _spheres;
     std::vector<std::pair<glm::mat4, float>> _circles;
+    std::vector<std::pair<glm::vec3, glm::vec3>> _arrows;
 
     camera_t *camera;
     texture_t *circleTexture;
@@ -57,10 +59,15 @@ struct debug_object_t : public mesh_t {
         _circles.push_back({matrix, radius});
     }
 
+    void add_arrow(glm::vec3 origin, glm::vec3 end) {
+        _arrows.push_back({origin, end});
+    }
+
     void clear() override {
         _lines.clear();
         _spheres.clear();
         _circles.clear();
+        _arrows.clear();
 
         mesh_t::clear();
     }
@@ -99,6 +106,8 @@ struct debug_object_t : public mesh_t {
             vertexCount += 1;
         }
     }
+
+
 
     void render() override {
         program->use();
@@ -144,10 +153,58 @@ struct debug_object_t : public mesh_t {
         }
 
         glDisable(GL_DEPTH_TEST);
-        modified = true;
         program->set_sampler("material.diffuse", circleTexture, 0);
         program->set_sampler("material.specular", circleTexture, 1);
+        modified = true;
         mesh_t::render();
+        mesh_t::clear();
+
+        for (auto &a : _arrows) {
+            vertex_t v[6];
+            unsigned int g = 0;
+            
+            const glm::vec4 UVWH = {0,0,1,1};
+            const glm::vec3 COLOR = {1,0,0};
+
+            auto &v1 = a.first;
+            auto &v2 = a.second;
+            glm::vec3 diff = a.first - a.second;
+            glm::vec4 mag = glm::vec4(glm::normalize(diff), 0);
+            glm::vec3 ws = a.first - (diff * 0.5f);
+            glm::mat4 matrix(1.0);
+            glm::mat4 m_billboard = camera->get_billboard_matrix();
+
+            matrix = glm::translate(matrix, a.first);
+            matrix = glm::rotate(matrix, (float)atan2(v1.x, v2.x), {0.0,0.0,1.0});
+            matrix = glm::rotate(matrix, (float)atan2(v1.y, v2.y), {1.0,0.0,0.0});
+            matrix = glm::scale(matrix, glm::vec3(1,1,glm::distance(a.first, a.second)));
+            //matrix[0] = mag;
+            //matrix[1] = mag;
+            //matrix[2] = mag;
+
+            matrix *= m_billboard;
+            //std::swap(matrix[1], matrix[2]);
+            //matrix *= camera->get_billboard_matrix();
+
+            //glm::vec3 counter = glm::normalize(a.first - a.second);
+            //glm::vec3 counter(1.0,5.0,1.0);
+            //glm::vec3 counter = a.first - a.second;
+            glm::vec3 counter(1.0);
+            //matrix[1] = glm::vec4(glm::normalize(a.first - a.second), 1.0);
+
+            //add_rect(&v[0], g, matrix, glm::distance(a.first, a.second), UVWH, COLOR);
+            gui::add_rectangle_3d(&v[0], matrix, counter, UVWH, COLOR);
+
+            std::copy(v, v+6, std::back_inserter(verticies));
+            vertexCount += 6;
+        }
+
+        glDisable(GL_CULL_FACE);
+        program->set_sampler("material.diffuse", arrowTexture, 0);
+        program->set_sampler("material.specular", arrowTexture, 1);
+        modified = true;
+        mesh_t::render();
+
         program->set_sampler("material.diffuse", mainTexture, 0);
         program->set_sampler("material.specular", mainTexture, 1);
         mainTexture->use();
@@ -180,7 +237,8 @@ struct debug_object_t : public mesh_t {
 
 namespace render {
     void render_vector(debug_object_t *debug_objects, glm::vec3 origin, glm::vec3 end) {
-        debug_objects->add_line(origin, end);
+        //debug_objects->add_line(origin, end);
+        debug_objects->add_arrow(origin, end);
     }
 
     void render_matrix(debug_object_t *debug_objects, glm::vec3 origin, glm::mat4 mat) {
@@ -383,6 +441,7 @@ int init() {
     mainTexture = new texture_t();
     textTexture = new texture_t();
     circleTexture = new texture_t();
+    arrowTexture = new texture_t;
     robotMaterial = new material_t(mainTexture,mainTexture,1.0f);
 
     mainVertexShader = new gui::VertexShader;
@@ -500,7 +559,8 @@ void reset() {
 int load() {
     if (mainTexture->generate(glm::vec4(0.0f,0.0f,0.0f,1.0f)) ||
         textTexture->load("assets/text.png") ||
-        circleTexture->load("assets/circle.png"))
+        circleTexture->load("assets/circle.png") ||
+        arrowTexture->load("assets/arrow.png"))
         handle_error("Failed to load textures");
 
     if (mainVertexShader->load("assets/shaders/vertex.glsl") ||

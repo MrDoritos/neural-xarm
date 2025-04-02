@@ -3,7 +3,7 @@
 namespace robot {
 
 glm::ivec4 current_window, initial_window;
-texture_t *textTexture, *mainTexture, *circleTexture;
+texture_t *textTexture, *mainTexture, *circleTexture, *arrowTexture;
 shader_t *mainVertexShader, *mainFragmentShader;
 shader_t *textVertexShader, *textFragmentShader;
 gui::UIShader *textProgram;

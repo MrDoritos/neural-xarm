@@ -35,7 +35,7 @@ struct debug_info_t;
 namespace robot {
 
 extern glm::ivec4 current_window, initial_window;
-extern texture_t *textTexture, *mainTexture, *circleTexture;
+extern texture_t *textTexture, *mainTexture, *circleTexture, *arrowTexture;
 extern shader_t *mainVertexShader, *mainFragmentShader;
 extern shader_t *textVertexShader, *textFragmentShader;
 extern gui::UIShader *textProgram;

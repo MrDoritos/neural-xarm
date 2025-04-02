@@ -316,7 +316,7 @@ bool Kinematics::solve_inverse(vec3_d coordsIn) {
 
         fp_t rad = atan2(mag.x, mag.y) - prevrot; // angle
 
-        if (is_not_real(rad))
+        if (util::is_not_real(rad))
             rad = glm::radians(segment_rotations[i + 2]); // we should get real numbers but in case we dont
         
         if (debug_pedantic)

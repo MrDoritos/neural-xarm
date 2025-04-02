@@ -1,4 +1,12 @@
 #include "joystick.h"
+#include "robot_interface.h"
+
+#include <thread>
+#include <glm/gtx/norm.hpp>
+#include <glm/gtc/type_ptr.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/glm.hpp>
+#include <glm/gtx/string_cast.hpp>
 
 int JoystickDevice::get_button(int button) {
     if (state.buttons[button]) {
@@ -228,21 +236,152 @@ void Joystick::remove(const std::string &guid) {
 }
 
 void Joystick::set_robot(double delta_time) {
+    for (auto &joy : joysticks) {
+        auto &guid = joy.first;
+        auto &jd = joy.second;
+        auto &gp = jd.state;
+        auto &axes = gp.axes;
+        auto &buttons = gp.buttons;
+        float tolerance = 0.12;
 
+        auto _set_v3 = [&](vec3_d &a, vec3_d &b, int i, double t) {
+            if (abs(b[i]) > t && abs(b[i]) < 100) {
+                a[i] += b[i];
+                return true;
+            }
+            return false;
+        };
+
+        auto set_v3 = [&](vec3_d &a, vec3_d &b, double t) {
+            return _set_v3(a, b, 0, t) | 
+                   _set_v3(a, b, 1, t) | 
+                   _set_v3(a, b, 2, t);
+        };
+
+        if (camera_move) {
+            float pitch = -axes[3];
+            float yaw = axes[2];
+            if (abs(pitch) <= tolerance)
+                pitch = 0;
+            if (abs(yaw) <= tolerance)
+                yaw = 0;
+            camera->joystick_move(window, pitch * 2 * delta_time, yaw * 2 * delta_time);
+
+
+            vec3_d jd(-axes[1], 0, axes[0]);
+
+            //jd = scale_axes(jd);
+
+            vec3_d ndz(0.0);
+            set_v3(ndz, jd, tolerance);
+            ndz = scale_axes(ndz);
+            if (buttons[GLFW_GAMEPAD_BUTTON_A])
+                ndz.y += 0.5;//jd.y += 0.5;
+            if (buttons[GLFW_GAMEPAD_BUTTON_B])
+                ndz.y -= 0.5;//jd.y -= 0.5;
+            auto cyw = glm::radians(camera->yaw);
+            auto vvv = vec3_d(
+                (cos(cyw) * ndz.x) - (sin(cyw) * ndz.z),
+                ndz.y,
+                (sin(cyw) * ndz.x) + (cos(cyw) * ndz.z)
+            );
+            
+            camera->position += vvv * delta_time;
+        } else {
+            vec3_d jd(-axes[1], -axes[3], axes[0]);
+            //jd *= 0.25f;
+            vec3_d ndz(0.0);
+            set_v3(ndz, jd, tolerance);
+
+            ndz = scale_axes(ndz);
+            ndz *= 0.25;
+            auto cyw = glm::radians<double>(camera->yaw);
+            auto vvv = vec3_d(
+                (cos(cyw) * ndz.x) - (sin(cyw) * ndz.z),
+                ndz.y,
+                (sin(cyw) * ndz.x) + (cos(cyw) * ndz.z)
+            ) * delta_time;
+            robot_target += vvv;
+
+            if (glm::length2(vvv) > 0)
+                kinematics->solve_inverse(robot_target);
+
+            vec3_d pd(axes[2] * 1.5, (axes[4] + 1) / 2, (axes[5] + 1) / 2), ndd(0.0);
+            set_v3(ndd, pd, tolerance);
+            ndd = scale_axes(ndd) * delta_time;
+
+            if (glm::length2(ndd) > 0) {
+                float s2r = s2->get_rotation(false);
+                float s1r = s1->get_rotation(false);
+
+                s2r += ndd.x * delta_time;
+                s1r -= ndd.y * delta_time;
+                s1r += ndd.z * delta_time;
+
+                s2r = util::clip(s2r, -120, 120); // because we can't check robot_interface unless refactor, works for now
+                s1r = util::clip(s1r, -50, 50);
+
+                s2->set_rotation(s2r);
+                s1->set_rotation(s1r);
+            }
+        }
+    }
 }
 
 void Joystick::query_robot() {
-
+    robot_interface->read_all();
+    for (auto *seg : servo_segments)
+        fprintf(stderr, "%i: %i (%.2f deg), ", seg->servo_num, seg->servo_cur_position, seg->to_degrees(seg->servo_cur_position));
+    fputs("\n", stderr);
 }
 
 void Joystick::rest_robot() {
-
+    robot_interface->servos_off();
 }
 
 void Joystick::rest_position_robot() {
+    auto rest = [&]() {
+        float iv = 1000.0;
+        robot_interface->set_servos({
+            {1, 500},
+            {2, 500},
+            {3, 500},
+            {4, 500},
+            {5, 500},
+            {6, 500}
+        }, iv);
 
+        std::this_thread::sleep_for(dur(iv));
+
+        robot_interface->set_servo(3, 1, iv);
+    };
+
+    auto thread = std::thread(rest);
 }
 
 void Joystick::connect_robot() {
+    robot_interface->open();
+    set_segments_from_robot();
+}
 
+std::string Joystick::get_debug_info() {
+    std::string info;
+    for (auto &joy : joysticks) {
+        auto &jid = joy.first;
+        auto &jd = joy.second;
+        info += std::format("Joystick: {}\n  Axes: {}\n  Buttons: {}\n  Jid: {}\n", jd.gp_name, jd.axis_count, jd.button_count, jd.jid);
+        auto &gp = jd.state;
+        for (int i = 0; i < sizeof gp.axes / sizeof gp.axes[0]; i++) {
+            info += std::format("  {}: {}\n", axis_mapping[i], gp.axes[i]);
+        }
+        auto &jh = jd.held_buttons;
+        for (int i = 0; i < sizeof gp.buttons / sizeof gp.buttons[0]; i++) {
+            if (button_mapping.contains(i))
+                info += std::format("  {}: {} {}\n", button_mapping[i], gp.buttons[i], jh[i]);
+            else
+            if (pedantic_debug)
+                info += std::format("  {}: {} {}\n", i, gp.buttons[i], jh[i]);
+        }
+    }   
+    return info;
 }

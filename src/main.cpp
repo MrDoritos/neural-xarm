@@ -584,7 +584,7 @@ struct kinematics_t {
     }
 };
 
-struct joystick_t {
+struct joystick_t {     
     struct joystick_device_t {
         joystick_device_t(int jid):joystick_device_t(get_device(jid).second) {}
         joystick_device_t() {}

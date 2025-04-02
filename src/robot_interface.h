@@ -4,7 +4,7 @@
 #include "segment.h"
 #include <hidapi/hidapi.h>
 
-namespace {
+//namespace {
 
 struct RobotInterface {
     using durl = std::chrono::duration<long, std::milli>;
@@ -17,6 +17,8 @@ struct RobotInterface {
 
     inline RobotInterface(unsigned short vendor_id, unsigned short product_id, const wchar_t *serial_number_w = nullptr, bool permit_virtual = false);
 
+    inline RobotInterface(bool permit_virtual = false); 
+
     inline ~RobotInterface();
 
     template<typename RB, 
@@ -26,8 +28,52 @@ struct RobotInterface {
              typename RB_TP = RB::tp,
              typename PAIR_T = std::pair<SERVO_T,SERVO_T>>
         requires std::is_base_of_v<robot_servo_T<SERVO_T, VT_T>, RB>
-    bool get_servo_commend(RB *servo, const PERIOD_T &r_period, const RB_TP &batch_time, const PAIR_T &cmd) {
-        return false;
+    bool get_servo_command(RB *servo, const PERIOD_T &r_period, const RB_TP &batch_time, PAIR_T &cmd) {
+        auto targetf = servo->get_clamped_rotation();
+        auto targeti = servo->get_servo(targetf);//servo->to_servo(targetf);
+        auto servo_min = servo->servo_min;
+        auto servo_max = servo->servo_max;
+        auto initialp = servo->get_servo_start();
+        auto initialpf = servo->get_servo_degrees(initialp);
+        auto intrp = servo->get_servo_interpolated();
+
+        if (targeti < servo_min || targeti > servo_max)
+            targeti = util::clip(targeti, servo_min, servo_max);
+
+        auto dist = targeti - intrp;
+
+        servo->last_command = batch_time;
+
+        if (abs(dist) < servo->min_command_threshold && abs(dist) < 1) {
+            servo->servo_end_position = targeti;
+            servo->servo_cur_position = targeti;
+            return false;
+        }
+
+        auto mv = (r_period/1000.0) * servo->degrees_per_second;
+        auto mvdist = servo->servo_cur_position - intrp;
+        auto accel = mvdist / mv;
+        auto jerk = (mvdist * mv) / mv;
+        auto rintrp = intrp;
+
+        if (abs(jerk) > mv / 2 && abs(mvdist) > 0) {
+            intrp += (mvdist * .5);
+        } else
+        if (abs(dist) < mv / 2 && abs(jerk) < mv / 4) {
+            intrp = targeti;
+            if (debug_pedantic)
+                fprintf(stderr, "Force set targeti\n");
+        }
+
+        servo->servo_end_position = targeti;
+        servo->servo_cur_position = intrp;
+
+        if (debug_pedantic)
+            fprintf(stderr, "Send constant time s%i (%i/initialp -> %i/rintrp (jerk comp %i/intrp)) (%i/mvdist) (%i/targeti %.2f/targetf : %.2f/initialpf) = %i/dist (%i r_period/ms %.2lf mv/intpersec) accel %.2f jerk %.2f\n", servo->servo_num, initialp, rintrp, intrp, mvdist, targeti, targetf, initialpf, dist, r_period, mv, accel, jerk);
+
+        cmd = { servo->servo_num, (int)intrp };
+
+        return true;
     }
 
     void update();
@@ -42,9 +88,13 @@ struct RobotInterface {
 
     int open();
 
+    int open(unsigned short vendor_id, unsigned short product_id, const wchar_t *serial_number_w = nullptr);
+
     std::string get_hid_error();
 
-    std::string debug_info();
+    std::string get_debug_info();
+
+    static std::string get_char_string(const std::wstring &str);
 
     void set_robot_defaults();
 
@@ -57,4 +107,4 @@ struct RobotInterface {
     void servos_off();
 };
 
-}
+//}

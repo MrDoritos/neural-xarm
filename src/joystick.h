@@ -47,7 +47,7 @@ struct Joystick {
          camera(camera),
          kinematics(kinematics) { }
 
-    template<typename T, int c = 3, typename vec = glm::vec<c, T>>
+    template<typename T = double, int c = 3, typename vec = glm::vec<c, T>>
     inline vec scale_axes(const vec &in) {
         vec ret(0.0);
         for (int i = 0; i < c; i++) {
@@ -77,7 +77,7 @@ struct Joystick {
 
     void connect_robot();
 
-    std::string debug_info();
+    std::string get_debug_info();
 
 
 };

@@ -202,7 +202,7 @@ struct SegmentT : public robot_servo_T<int, float> {
 
     inline constexpr glm::vec3 get_origin(const bool &allow_interpolate = true) const {
         if (!parent) {
-            assert(mesh && "Mesh null\n");
+            if (!mesh) return glm::vec3(0);
             return mesh->position;
         }
 
@@ -227,33 +227,18 @@ struct SegmentT : public robot_servo_T<int, float> {
     /*
         kg*cm
     */
-    inline constexpr float get_self_force(const bool &allow_interpolate = true) const {
-        auto s_v = get_segment_vector(allow_interpolate);
-        auto s_n = glm::normalize(s_v);
-        float fac = 1.0-fabs(s_n[1]);
-        return (length/10.0/2.0) * (fac * mass);
-    }
-
+    glm::vec3 get_self_force(const bool &allow_interpolate = true) const;
     /*
         kg*cm
     */
-    inline constexpr float get_total_force(const bool &allow_interpolate = true, float start_length = 0, float start_mass = 0) const {
-        auto s_f = get_self_force(allow_interpolate);
-        auto s_v = get_segment_vector(allow_interpolate);
-        auto s_n = glm::normalize(s_v);
-        float horizontal_distance = (1.0-fabs(s_n[1])) * length;
+    glm::vec3 get_total_force(const bool &allow_interpolate = true, glm::vec3 start_length = glm::vec3(0.0f), float start_mass = 0) const;
 
-        if (util::is_not_real(horizontal_distance))
-            horizontal_distance = 0.0;
+    float get_axis_load(const glm::vec3 &normalized_force,const bool &allow_interpolate=true) const;
 
-        float total_horizontal = start_length + horizontal_distance;
-        float total_mass = start_mass + mass;
-
-        if (child)
-            return child->get_total_force(allow_interpolate, total_horizontal, total_mass);
-        
-        return (total_horizontal / 10.0 / 2.0) * (total_mass);
-    }
+    /*
+        0-1
+    */
+    float get_servo_load(const bool &allow_interpolate = true) const;
 
     float model_scale = 0.1;
     glm::vec3 rotation_axis;

@@ -21,16 +21,11 @@ namespace robot {
     struct Kinematics;
     struct Joystick;
     struct JoystickDevice;
+    struct debug_info_t;
+    struct debug_object_t;
 }
 
-#include "robot_interface.h"
-#include "joystick.h"
-#include "segment.h"
-#include "kinematics.h"
-
 struct RobotShader;
-struct debug_object_t;
-struct debug_info_t;
 
 namespace robot {
 
@@ -47,7 +42,7 @@ extern std::vector<robot::Segment*> segments;
 extern std::vector<robot::Segment*> visible_segments;
 extern std::vector<robot::Segment*> servo_segments;
 extern std::vector<mesh_t*> meshes;
-extern debug_object_t *debug_objects;
+extern robot::debug_object_t *debug_objects;
 extern ui_text_t *debugInfo;
 extern ui_toggle_t *debugToggle, *interpolatedToggle, *resetToggle, *resetConnectionToggle, *pedanticToggle;
 extern ui_slider_t *slider6, *slider5, *slider4, *slider3, *slider2, *slider1, *slider_ambient, *slider_diffuse, *slider_specular, *slider_shininess;

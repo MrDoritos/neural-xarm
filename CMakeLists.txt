@@ -23,6 +23,7 @@ add_executable(${NEURAL_XARM_NAME}
     ${NEURAL_XARM_SOURCE_DIR}/robot_interface.cpp
     ${NEURAL_XARM_SOURCE_DIR}/joystick.cpp
     ${NEURAL_XARM_SOURCE_DIR}/kinematics.cpp
+    ${NEURAL_XARM_SOURCE_DIR}/xarm_common.cpp
 )
 
 find_path(hidapi_INCLUDE_DIR hidapi/hidapi.h)

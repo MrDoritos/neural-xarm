@@ -1,7 +1,3 @@
-#include <iomanip>
-#include <thread>
-#include <mutex>
-
 #include <signal.h>
 
 #include <glm/gtc/type_ptr.hpp>
@@ -10,9 +6,9 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
-#include <hidapi/hidapi.h>
-
 #include "xarm_common.h"
+
+using namespace robot;
 
 struct RobotShader : public gui::MaterialShader {
     RobotShader(const gui::MaterialShader &base):gui::MaterialShader(base) { }

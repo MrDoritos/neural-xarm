@@ -6,6 +6,16 @@ namespace robot {
  
 float d_unit = 1.0f / 10.0f;
 
+/*
+    G = 9.8m/s^2
+    force = mass * G
+    torque = radius * force * sin(theta)
+    torque of segment = (length / 2) * force * sin(theta)
+    force of segments = (sum force)
+    displacement = end segment vector + end origin - start origin
+    torque of segments = (sum displacement / 2) * (sum force)
+*/
+
 template<>
 glm::vec3 Segment::get_self_force(const bool &allow_interpolate) const {
     auto s_v = get_segment_vector(allow_interpolate);

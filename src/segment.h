@@ -178,6 +178,12 @@ struct SegmentT : public robot_servo_T<int, float> {
         return length * model_scale;
     }
 
+    inline constexpr float get_length_temp() const {
+        if (servo_num < 4 && child)
+            return get_length() + child->get_length_temp();
+        return get_length();
+    }
+
     inline constexpr glm::mat4 get_rotation_matrix(const bool &allow_interpolate = true) const {
         if (!parent)
             return glm::rotate(glm::mat4(1.0f), glm::radians(-90.0f), glm::vec3(x_axis));

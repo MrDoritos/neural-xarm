@@ -12,7 +12,8 @@ bool Kinematics::solve_inverse(vec3_d coordsIn) {
         Assume Y-up       
     */
 
-    std::vector<Segment*> &segments = visible_segments;
+    //std::vector<Segment*> &segments = visible_segments;
+    std::vector<Segment*> segments(visible_segments.begin(), visible_segments.end()-2);
 
     bool calculation_failure = false;
 
@@ -88,7 +89,7 @@ bool Kinematics::solve_inverse(vec3_d coordsIn) {
         }
 
         Segment *seg = remaining_segments.back();
-        fp_t segment_radius = seg->get_length();
+        fp_t segment_radius = seg->get_length_temp();
         
         /*
             The total_length is the total length of segments remaining
@@ -97,7 +98,7 @@ bool Kinematics::solve_inverse(vec3_d coordsIn) {
         */
         fp_t total_length = 0.0;
         for (Segment *x : remaining_segments)
-            total_length += x->get_length();
+            total_length += x->get_length_temp();
 
         /*
             dist_to_segment is the absolute max the rest of the segments

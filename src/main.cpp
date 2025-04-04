@@ -335,7 +335,7 @@ int init() {
         debug_pedantic = state;
     }));
 
-    for (int i = 0; i < 5; i++)
+    for (int i = 0; i < 7; i++)
         meshes.push_back(new mesh_t);
 
     robot::Segment **s_pos[] = { &sBase, &s6, &s5, &s4, &s3, &s2, &s1 };
@@ -343,7 +343,7 @@ int init() {
     for (int i = 0; i < 7; i++)
         segments.push_back(*s_pos[i] = new robot::Segment);
 
-    visible_segments = std::vector<robot::Segment*>({sBase, s6, s5, s4, s3});
+    visible_segments = std::vector<robot::Segment*>({sBase, s6, s5, s4, s3, s2, s1});
     servo_segments = std::vector<robot::Segment*>({s6, s5, s4, s3, s2, s1});
     servo_sliders = std::vector({slider6, slider5, slider4, slider3, slider2, slider1});
 
@@ -394,12 +394,14 @@ int load() {
         Merge by distance 0.00001
         Origin on pivot point
     */
-    const char *mesh_locs[5] = {
+    const char *mesh_locs[7] = {
         "assets/xarm-sbase.obj",
         "assets/xarm-s6.obj",
         "assets/xarm-s5.obj",
         "assets/xarm-s4.obj",
-        "assets/xarm-s3.obj"
+        "assets/xarm-s3.obj",
+        "assets/xarm-s2.obj",
+        "assets/xarm-s1.obj"
     };
 
     int dhome = 500;
@@ -427,10 +429,10 @@ int load() {
         {nullptr,        s6,  meshes[0], servo_vals[0], z_axis, 46.19, 0.5, 0.0 },   // 
         {sBase  ,        s5,  meshes[1], servo_vals[1], z_axis, 35.98, 0.2, 15.0},   // 6
         {s6     ,        s4,  meshes[2], servo_vals[2], y_axis, 100.0, 0.2, 25.0},   // 5
-        {s5     ,        s3,  meshes[3], servo_vals[3], y_axis, 96.0 , 0.2, 15.0},   // 4
-        {s4     ,        s2,  meshes[4], servo_vals[4], y_axis, 150.0, 0.2, 15.0},   // 3
-        {nullptr,        s1,    nullptr, servo_vals[5], z_axis, 0    , 0.2, 15.0},   // 2
-        {nullptr,   nullptr,    nullptr, servo_vals[6], z_axis, 0    , 0.2, 15.0}    // 1
+        {s5     ,        s3,  meshes[3], servo_vals[3], y_axis, 96.00, 0.2, 15.0},   // 4
+        {s4     ,        s2,  meshes[4], servo_vals[4], y_axis, 50.90, 0.2, 15.0},   // 3
+        {s3     ,        s1,  meshes[5], servo_vals[5], z_axis, 37.08, 0.2, 15.0},   // 2
+        {s2     ,   nullptr,  meshes[6], servo_vals[6], z_axis, 67.75, 0.2, 15.0}    // 1
     };
 
     for (int i = 0; i < sizeof mesh_locs / sizeof mesh_locs[0]; i++)

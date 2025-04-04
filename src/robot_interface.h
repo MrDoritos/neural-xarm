@@ -44,7 +44,7 @@ struct RobotInterface {
 
         servo->last_command = batch_time;
 
-        if (abs(dist) < servo->min_command_threshold && abs(dist) < 1) {
+        if (fabs(dist) < servo->min_command_threshold && fabs(dist) < 1) {
             servo->servo_end_position = targeti;
             servo->servo_cur_position = targeti;
             return false;
@@ -56,10 +56,10 @@ struct RobotInterface {
         auto jerk = (mvdist * mv) / mv;
         auto rintrp = intrp;
 
-        if (abs(jerk) > mv / 2 && abs(mvdist) > 0) {
+        if (fabs(jerk) > mv / 2 && fabs(mvdist) > 0) {
             intrp += (mvdist * .5);
         } else
-        if (abs(dist) < mv / 2 && abs(jerk) < mv / 4) {
+        if (fabs(dist) < mv / 2 && fabs(jerk) < mv / 4) {
             intrp = targeti;
             if (debug_pedantic)
                 fprintf(stderr, "Force set targeti\n");

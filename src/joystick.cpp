@@ -116,7 +116,9 @@ std::map<int, std::string> Joystick::axis_mapping = {
 Joystick::Joystick(RobotInterface *robot_interface, camera_t *camera, Kinematics *kinematics)
         :robot_interface(robot_interface),
          camera(camera),
-         kinematics(kinematics) {
+         kinematics(kinematics),
+         pedantic_debug(false),
+         camera_move(false) {
 
 }
 
@@ -263,7 +265,7 @@ void Joystick::set_robot(double delta_time) {
         float tolerance = 0.12;
 
         auto _set_v3 = [&](vec3_d &a, vec3_d &b, int i, double t) {
-            if (abs(b[i]) > t && abs(b[i]) < 100) {
+            if (fabs(b[i]) > t && fabs(b[i]) < 100) {
                 a[i] += b[i];
                 return true;
             }
@@ -279,9 +281,9 @@ void Joystick::set_robot(double delta_time) {
         if (camera_move) {
             float pitch = -axes[3];
             float yaw = axes[2];
-            if (abs(pitch) <= tolerance)
+            if (fabs(pitch) <= tolerance)
                 pitch = 0;
-            if (abs(yaw) <= tolerance)
+            if (fabs(yaw) <= tolerance)
                 yaw = 0;
             camera->joystick_move(window, pitch * 2 * delta_time, yaw * 2 * delta_time);
 

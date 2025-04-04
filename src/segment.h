@@ -106,7 +106,7 @@ struct robot_servo_T {
     inline constexpr RET get_servo_interpolated() const {
         RET d = servo_end_position - servo_cur_position;
 
-        if (abs(d) < min_command_threshold)
+        if (fabs(d) < min_command_threshold)
             return servo_end_position;
 
         auto t = get_elapsed_time<float>();
@@ -115,7 +115,7 @@ struct robot_servo_T {
         RET dir = d > 0 ? 1 : -1;
         RET intp = dir * md;
 
-        if (abs(intp) > abs(d))
+        if (fabs(intp) > fabs(d))
             return servo_end_position;
 
         return intp + servo_cur_position;

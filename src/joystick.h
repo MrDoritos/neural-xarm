@@ -48,7 +48,7 @@ struct Joystick {
         vec ret(0.0);
         for (int i = 0; i < c; i++) {
             T sign = in[i] >= 0 ? 1 : -1;
-            ret[i] = (0.0 + (1.0 * powf64(0.0 + abs(in[i]), 2))) * sign;
+            ret[i] = (0.0 + (1.0 * powf64(0.0 + fabs(in[i]), 2.0))) * sign;
         }
         return ret;
     }

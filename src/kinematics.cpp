@@ -236,7 +236,7 @@ bool Kinematics::solve_inverse(vec3_d coordsIn) {
             Calculate the magnitude (rotation) with the new circle intersection
         */
         vec2 mp_vec = mag * equal_mp;
-        fp_t n = sqrt(abs((segment_radius * segment_radius) - (rem_dist * rem_dist)));
+        fp_t n = sqrtf(fabs((segment_radius * segment_radius) - (rem_dist * rem_dist)));
         fp_t deg90 = (M_PI / 2.0);
         fp_t o = atan2(mag.y, mag.x) - deg90;
         vec2 new_mag = glm::normalize(vec2(cosf(o),sinf(o)));
@@ -260,7 +260,7 @@ bool Kinematics::solve_inverse(vec3_d coordsIn) {
         /*
             We can detect if our math sucks
         */
-        if (abs(dist_new_prev - segment_radius) > tolerable_distance) {
+        if (fabs(dist_new_prev - segment_radius) > tolerable_distance) {
             if (debug_pedantic)
                 puts("Distance to prev is too different");
             calculation_failure = true;

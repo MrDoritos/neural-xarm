@@ -60,7 +60,9 @@ glm::vec3 Segment::get_self_torque(const bool &allow_interpolate, const glm::vec
 
     glm::vec2 xz_self(mp.x, mp.z), xz_origin(origin.x, origin.z);
     //auto y_torque = glm::distance(xz_self, xz_origin) * f.y;
-    auto y_torque = glm::dot(xz_origin, xz_origin + xz_self) * f.y;
+    auto y_fact = glm::normalize(origin + mp);
+    //auto y_torque = glm::dot(xz_origin, xz_origin + xz_self) * f.y;
+    auto y_torque = (fabs(y_fact.x) + fabs(y_fact.z)) * f.y;
 
     //return (origin + mp) * f;
     return glm::vec3(0, y_torque, 0);
@@ -103,7 +105,8 @@ float Segment::get_axis_load(const glm::vec3 &normalized_force, const bool &allo
 template<>
 float Segment::get_servo_load(const bool &allow_interpolate) const {
     //float load = get_total_force(allow_interpolate).y / torque;
-    float load = get_total_torque(allow_interpolate).y / torque;
+    auto so = get_origin(allow_interpolate);
+    float load = get_total_torque(allow_interpolate, so).y / torque;
 
     auto origin = get_origin(allow_interpolate);
     auto mp = origin + get_midpoint(allow_interpolate);

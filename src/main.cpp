@@ -158,7 +158,7 @@ std::string segment_debug_info() {
     ret += std::format("{:>7} {: >12s} {: >13s}\n", "Servos:", "Interpolated", "Immediate");
 
     auto get_segment = [&](robot::Segment *seg) {
-        return std::format("{:>3}: {:>9.2f} {:>5} {:>7.2f} {:>5} force {:>5.2f} total {:>5.2f}\n  load {:>3.0f}% z-load {:>3.0f}% torque {:>5.2f} total {:>5.2f}\n", 
+        return std::format("{:>3}: {:>9.2f} {:>5} {:>7.2f} {:>5} force {:>5.2f} total {:>5.2f}\n  s-load {:>3.0f}% z-load {:>3.0f}% torque {:>5.2f} total {:>5.2f}\n", 
             seg->servo_num, 
             seg->get_servo_interpolated_degrees(), 
             seg->get_servo_interpolated(), 
@@ -168,7 +168,7 @@ std::string segment_debug_info() {
             seg->get_total_force().y, 
             seg->get_servo_load()*100.0, 
             seg->get_axis_load(glm::normalize(seg->get_total_force()))*100.0,
-            seg->get_self_torque().y,
+            seg->get_self_torque(true, seg->get_origin()).y,
             seg->get_total_torque().y
         );
     };

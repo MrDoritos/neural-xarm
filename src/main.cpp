@@ -158,7 +158,7 @@ std::string segment_debug_info() {
     ret += std::format("{:>7} {: >12s} {: >13s}\n", "Servos:", "Interpolated", "Immediate");
 
     auto get_segment = [&](robot::Segment *seg) {
-        return std::format("{:>3}: {:>9.2f} {:>5} {:>7.2f} {:>5} force {:>5.2f} total {:>5.2f}\n  load {:>3.0f}% z-load {:>3.0f}%\n", 
+        return std::format("{:>3}: {:>9.2f} {:>5} {:>7.2f} {:>5} force {:>5.2f} total {:>5.2f}\n  load {:>3.0f}% z-load {:>3.0f}% torque {:>5.2f} total {:>5.2f}\n", 
             seg->servo_num, 
             seg->get_servo_interpolated_degrees(), 
             seg->get_servo_interpolated(), 
@@ -167,7 +167,9 @@ std::string segment_debug_info() {
             seg->get_self_force().y, 
             seg->get_total_force().y, 
             seg->get_servo_load()*100.0, 
-            seg->get_axis_load(glm::normalize(seg->get_total_force()))*100.0
+            seg->get_axis_load(glm::normalize(seg->get_total_force()))*100.0,
+            seg->get_self_torque().y,
+            seg->get_total_torque().y
         );
     };
 
@@ -428,7 +430,7 @@ int load() {
         {s5     ,        s3,  meshes[3], servo_vals[3], y_axis, 96.0 , 0.2, 15.0},   // 4
         {s4     ,        s2,  meshes[4], servo_vals[4], y_axis, 150.0, 0.2, 15.0},   // 3
         {nullptr,        s1,    nullptr, servo_vals[5], z_axis, 0    , 0.2, 15.0},   // 2
-        {nullptr,   nullptr,    nullptr, servo_vals[6], z_axis, 0    , 1.0, 15.0}    // 1
+        {nullptr,   nullptr,    nullptr, servo_vals[6], z_axis, 0    , 0.2, 15.0}    // 1
     };
 
     for (int i = 0; i < sizeof mesh_locs / sizeof mesh_locs[0]; i++)

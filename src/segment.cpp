@@ -5,6 +5,7 @@
 namespace robot {
  
 float d_unit = 1.0f / 10.0f;
+float gravity = 9.81f;
 
 /*
     G = 9.8m/s^2
@@ -18,55 +19,62 @@ float d_unit = 1.0f / 10.0f;
 
 template<>
 glm::vec3 Segment::get_self_force(const bool &allow_interpolate) const {
-    auto s_v = get_segment_vector(allow_interpolate);
-    auto s_n = glm::normalize(s_v);
-    float horizontal_distance = (1.0-fabs(s_n[1])) * length;
-
-    if (util::is_not_real(horizontal_distance))
-        horizontal_distance = 0.0;
-
-    auto force_v = glm::vec3(0, (horizontal_distance * d_unit * 0.5) * mass, 0);
-
-    auto origin = get_origin(allow_interpolate);
-    auto mp = origin + get_midpoint(allow_interpolate);
-    //debug_objects->add_line(mp, mp - (force_v * 2.0f));
+    auto force_v = glm::vec3(0, mass * gravity, 0);
 
     return force_v;
 }
 
 template<>
-glm::vec3 Segment::get_total_force(const bool &allow_interpolate, glm::vec3 position, float start_mass) const {
-    auto origin = get_origin(allow_interpolate);
-    auto s_v = get_segment_vector(allow_interpolate);
-    auto s_n = glm::normalize(s_v);
-    //float horizontal_distance = (1.0-fabs(s_n[1])) * length;
-
-    //fprintf(stderr, "%i %f %f %f\n", servo_num, s_v.x, s_v.y, s_v.z);
-
-    //if (util::is_not_real(horizontal_distance))
-    //    horizontal_distance = 0.0;
-
-    //glm::vec3 total_position = s_v + position;
-    glm::vec3 total_position = get_self_force(allow_interpolate) + position;
-
-    //float total_horizontal = start_length + horizontal_distance;
-    float total_mass = start_mass + mass;
+glm::vec3 Segment::get_total_force(const bool &allow_interpolate) const {    
+    auto sf = get_self_force(allow_interpolate);
 
     if (child)
-        return child->get_total_force(allow_interpolate, total_position, total_mass);
+        return sf + child->get_total_force(allow_interpolate);
     
-    total_position = glm::abs(total_position);
+    return sf;
+}
 
-    //float dist = glm::length(total_position) * (1.0-fabs(total_position[1]));
-    float dist = total_position.y;
+template<>
+std::pair<glm::vec3, glm::vec3> Segment::get_self_center_force(const bool &allow_interpolate) const {
+    auto f = get_self_force(allow_interpolate);
+    auto m = get_midpoint(allow_interpolate);
 
-    //auto force_v = glm::vec3(0, (total_horizontal * d_unit * 0.5) * total_mass, 0);
-    //auto force_v = total_position * d_unit * 0.5f * total_mass;
-    auto force_v = glm::vec3(0, dist * d_unit * 0.5f * total_mass, 0);
+    return {m, f};
+}
 
-    fprintf(stderr, "%i %f %f %f %f %f %f\n", servo_num, total_position.x, total_position.y, total_position.z, force_v.x, force_v.y, force_v.z);
+template<>
+std::pair<glm::vec3, glm::vec3> Segment::get_total_center_force(const bool &allow_interpolate) const {
+    auto cf = get_self_center_force(allow_interpolate);
 
-    return force_v;
+    if (child) {
+        auto c_cf = child->get_total_center_force(allow_interpolate);
+        return {cf.first + c_cf.first, cf.second + c_cf.second};
+    }
+
+    return cf;
+}
+
+template<>
+glm::vec3 Segment::get_self_torque(const bool &allow_interpolate, const glm::vec3 &origin) const {
+    auto [mp, f] = get_self_center_force(allow_interpolate);
+
+    glm::vec2 xz_self(mp.x, mp.z), xz_origin(origin.x, origin.z);
+    //auto y_torque = glm::distance(xz_self, xz_origin) * f.y;
+    auto y_torque = glm::dot(xz_origin, xz_origin + xz_self) * f.y;
+
+    //return (origin + mp) * f;
+    return glm::vec3(0, y_torque, 0);
+}
+
+template<>
+glm::vec3 Segment::get_total_torque(const bool &allow_interpolate, const glm::vec3 &origin) const {
+    auto st = get_self_torque(allow_interpolate, origin);
+    auto so = get_origin(allow_interpolate);
+
+    if (child)
+        return st + child->get_total_torque(allow_interpolate, so);
+
+    return st;
 }
 
 template<>
@@ -94,7 +102,8 @@ float Segment::get_axis_load(const glm::vec3 &normalized_force, const bool &allo
 
 template<>
 float Segment::get_servo_load(const bool &allow_interpolate) const {
-    float load = get_total_force(allow_interpolate).y / torque;
+    //float load = get_total_force(allow_interpolate).y / torque;
+    float load = get_total_torque(allow_interpolate).y / torque;
 
     auto origin = get_origin(allow_interpolate);
     auto mp = origin + get_midpoint(allow_interpolate);

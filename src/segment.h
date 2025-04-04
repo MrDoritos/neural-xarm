@@ -225,14 +225,50 @@ struct SegmentT : public robot_servo_T<int, float> {
     }
 
     /*
-        kg*cm
+        ~~kg*cm~~
+        Force in newtons
     */
     glm::vec3 get_self_force(const bool &allow_interpolate = true) const;
-    /*
-        kg*cm
-    */
-    glm::vec3 get_total_force(const bool &allow_interpolate = true, glm::vec3 start_length = glm::vec3(0.0f), float start_mass = 0) const;
 
+    /*
+        ~~kg*cm~~
+        Total force in newtons
+    */
+    glm::vec3 get_total_force(const bool &allow_interpolate = true) const;
+
+    /*
+        x = rotational
+        y = lateral
+        z = axial
+
+        Torque in N*m
+
+        https://en.wikipedia.org/wiki/Geometric_terms_of_location
+    */
+    glm::vec3 get_total_torque(const bool &allow_interpolate = true, const glm::vec3 &origin = glm::vec3(0)) const;
+
+    /*
+        x = rotational
+        y = lateral
+        z = axial
+
+        Torque in N*m
+    */
+    glm::vec3 get_self_torque(const bool &allow_interpolate = true, const glm::vec3 &origin = glm::vec3(0)) const;
+
+    /*
+        pair -> first: midpoint rel 0, second: self_force
+    */
+    std::pair<glm::vec3, glm::vec3> get_self_center_force(const bool &allow_interpolate = true) const;
+
+    /*
+
+    */
+    std::pair<glm::vec3, glm::vec3> get_total_center_force(const bool &allow_interpolate = true) const;
+
+    /*
+        0-1
+    */
     float get_axis_load(const glm::vec3 &normalized_force,const bool &allow_interpolate=true) const;
 
     /*

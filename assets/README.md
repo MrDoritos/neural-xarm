@@ -20,18 +20,18 @@ When exporting OBJ (from Blender 4.3.2)
 
 #### Grouping
 
-[ ] - Object Groups
-[ ] - Material Groups
-[ ] - Vertex Groups
-[ ] - Smooth Groups
-[ ] - Smooth Group Bitflags
+- [ ] Object Groups
+- [ ] Material Groups
+- [ ] Vertex Groups
+- [ ] Smooth Groups
+- [ ] Smooth Group Bitflags
 
 #### Materials
 
-[x] - Materials
-[ ] - PBR Extensions
+- [x] Materials
+- [ ] PBR Extensions
 - Path Mode: `Auto`
 
 #### Animation
 
-[ ] - Animation
+- [ ] Animation

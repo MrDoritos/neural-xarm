@@ -18,6 +18,8 @@ bool Kinematics::solve_inverse(vec3_d coordsIn) {
     assert(segments.size() && "No available segments for IK\n");
     
     vec3 target = coordsIn - vec3(segments[0]->get_origin(false));
+
+    return gl_success;
 }
 
 bool Kinematics::solve_inverse_simple(vec3_d coordsIn) {

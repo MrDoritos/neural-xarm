@@ -138,7 +138,7 @@ struct SegmentT : public robot_servo_T<int, float> {
     using robot_servo_type = robot_servo_T<int, float>;
     SegmentT() {}
 
-    inline SegmentT(SegmentT *parent, SegmentT *child, mesh_base *mesh, const robot_servo_type &servo_config, const glm::vec3 &rotation_axis, const float &length, const float &mass, const float &torque)
+    inline SegmentT(SegmentT *parent, SegmentT *child, mesh_base *mesh, const robot_servo_type &servo_config, const glm::vec3 &rotation_axis, const float &length, const float &mass, const float &torque, const bool &solve_kinematic)
            :robot_servo_type(servo_config),
             parent(parent),
             child(child),
@@ -146,7 +146,8 @@ struct SegmentT : public robot_servo_T<int, float> {
             rotation_axis(rotation_axis),
             length(length),
             mass(mass),
-            torque(torque) { }
+            torque(torque),
+            solve_kinematic(solve_kinematic) { }
 
     template<typename ROT_T = float>
     inline constexpr ROT_T get_clamped_rotation(const bool &allow_interpolate = false) const {
@@ -287,6 +288,7 @@ struct SegmentT : public robot_servo_T<int, float> {
     SegmentT<> *parent, *child;
     glm::vec3 debug_color;
     float length, mass, torque;
+    bool solve_kinematic;
     mesh_base *mesh;
 };
 

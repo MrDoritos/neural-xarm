@@ -426,13 +426,13 @@ int load() {
     */
 
     robot::Segment segment_vals[7] = {
-        {nullptr,        s6,  meshes[0], servo_vals[0], z_axis, 46.19, 0.5, 0.0 },   // 
-        {sBase  ,        s5,  meshes[1], servo_vals[1], z_axis, 35.98, 0.2, 15.0},   // 6
-        {s6     ,        s4,  meshes[2], servo_vals[2], y_axis, 100.0, 0.2, 25.0},   // 5
-        {s5     ,        s3,  meshes[3], servo_vals[3], y_axis, 96.00, 0.2, 15.0},   // 4
-        {s4     ,        s2,  meshes[4], servo_vals[4], y_axis, 50.90, 0.2, 15.0},   // 3
-        {s3     ,        s1,  meshes[5], servo_vals[5], z_axis, 37.08, 0.2, 15.0},   // 2
-        {s2     ,   nullptr,  meshes[6], servo_vals[6], z_axis, 67.75, 0.2, 15.0}    // 1
+        {nullptr,        s6,  meshes[0], servo_vals[0], z_axis, 46.19, 0.5, 0.0 , false},   // 
+        {sBase  ,        s5,  meshes[1], servo_vals[1], z_axis, 35.98, 0.2, 15.0, true },   // 6
+        {s6     ,        s4,  meshes[2], servo_vals[2], y_axis, 100.0, 0.2, 25.0, true },   // 5
+        {s5     ,        s3,  meshes[3], servo_vals[3], y_axis, 96.00, 0.2, 15.0, true },   // 4
+        {s4     ,        s2,  meshes[4], servo_vals[4], y_axis, 50.90, 0.2, 15.0, true },   // 3
+        {s3     ,        s1,  meshes[5], servo_vals[5], z_axis, 37.08, 0.2, 15.0, false},   // 2
+        {s2     ,   nullptr,  meshes[6], servo_vals[6], z_axis, 67.75, 0.2, 15.0, false}    // 1
     };
 
     for (int i = 0; i < sizeof mesh_locs / sizeof mesh_locs[0]; i++)

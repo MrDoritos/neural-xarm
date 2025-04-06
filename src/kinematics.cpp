@@ -4,6 +4,24 @@ namespace robot {
 
 bool Kinematics::solve_inverse(vec3_d coordsIn) {
     using fp_t = vec3_d::value_type;
+
+    using vec3 = glm::vec<3, fp_t>;
+    using vec2 = glm::vec<2, fp_t>;
+    
+    std::vector<Segment*> segments;
+
+    for (auto *seg : segments) {
+        if (seg->solve_kinematic)
+            segments.push_back(seg);
+    }
+
+    assert(segments.size() && "No available segments for IK\n");
+    
+    vec3 target = coordsIn - vec3(segments[0]->get_origin(false));
+}
+
+bool Kinematics::solve_inverse_simple(vec3_d coordsIn) {
+    using fp_t = vec3_d::value_type;
     
     using vec3 = glm::vec<3, fp_t>;
     using vec2 = glm::vec<2, fp_t>;

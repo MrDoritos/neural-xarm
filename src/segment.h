@@ -152,7 +152,7 @@ struct SegmentT : public robot_servo_T<int, float> {
     SegmentT<> *parent, *child;
     glm::vec3 debug_color;
     float length, mass, torque;
-    bool solve_kinematic;
+    bool solve_kinematic, add_slider;
     mesh_base *mesh;
 
     SegmentT():

@@ -11,6 +11,25 @@ inline CSVRowIterator &operator>>(CSVRowIterator &iter, std::string &val) {
     return iter;
 }
 
+inline bool lower_equals(const unsigned char a, const unsigned char b) {
+    return std::tolower(a) == std::tolower(b);
+}
+
+inline bool lower_contains(const std::string &a, const std::string &b) {
+    const std::string *v[2] = {&a, &b};
+    if (a.size() > b.size())
+        std::swap(v[0], v[1]);
+    return std::equal(v[0]->begin(), v[0]->end(), v[1]->begin(), lower_equals);
+}
+
+inline CSVRowIterator &operator>>(CSVRowIterator &iter, bool &val) {
+    assert(iter.available() && "Nothing left to parse\n");
+    std::string str((iter++).str());
+
+    val = lower_contains(str, "1") || lower_contains(str, "true");
+    return iter;
+}
+
 inline CSVRowIterator &operator>>(CSVRowIterator &iter, int &val) {
     assert(iter.available() && "Nothing left to parse\n");
     val = atoi((iter++).str());
@@ -87,6 +106,8 @@ struct SegmentLoader_T {
         iter >> segment->rotation_axis;
         iter >> segment->length;
         iter >> segment->model_scale;
+        iter >> segment->add_slider;
+        iter >> segment->solve_kinematic;
     
         segment->mesh = new mesh_type;
         this->meshes.push_back(segment->mesh);

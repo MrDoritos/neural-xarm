@@ -348,7 +348,8 @@ int make_sliders() {
     
     int sl = 0;
     for (auto *seg : robot::segments)
-        servo_sliders.push_back(ui_servo_sliders->add_child(new ui_slider_t(window, robot::textProgram, robot::textTexture, sliderPos + (sliderAdd * glm::vec4(sl++)), sMM.x, sMM.y, 0., std::format("Servo {}", seg->servo_num), true, servo_slider_update)));
+        if (seg->add_slider)
+            servo_sliders.push_back(ui_servo_sliders->add_child(new ui_slider_t(window, robot::textProgram, robot::textTexture, sliderPos + (sliderAdd * glm::vec4(sl++)), sMM.x, sMM.y, 0., std::format("Servo {}", seg->servo_num), true, servo_slider_update)));
 
     slider_ambient = debugInfo->add_child(new ui_slider_t(window, textProgram, textTexture, sliderPos + (sliderAdd * glm::vec4(sl++)), -2., 2., -0.3, "Ambient Light", false));
     slider_diffuse = debugInfo->add_child(new ui_slider_t(window, textProgram, textTexture, sliderPos + (sliderAdd * glm::vec4(sl++)), -2., 2., 1.5, "Diffuse Light", false));

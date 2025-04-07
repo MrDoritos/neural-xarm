@@ -1,0 +1,12 @@
+# Blender 4.3.2 MTL File: 'generic.blend'
+# www.blender.org
+
+newmtl Material.004
+Ns 66.736107
+Ka 0.666667 0.666667 0.666667
+Kd 0.172307 0.279889 0.800032
+Ks 1.000000 1.000000 1.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.710000
+d 1.000000
+illum 3

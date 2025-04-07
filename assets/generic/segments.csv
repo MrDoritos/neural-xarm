@@ -1,0 +1,7 @@
+# servo, translation x, y, z, model file, rotation axis x, y, z, length, scale
+1,0,-0.4,-0.5625,generic_s1.obj,0,0,1,1.5625,1
+2,0,0,0,generic_s2.obj,0,0,1,0.7625,1
+3,0,0.4,0,generic_s3.obj,0,1,0,2.9875,1
+4,0,0,0,generic_s4.obj,0,1,0,2.2956,1
+5,0,0,0,generic_s5.obj,1,0,0,0.5325,1
+6,0,0,0,generic_s6.obj,0,1,0,2.2,1

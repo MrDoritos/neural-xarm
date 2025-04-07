@@ -37,7 +37,7 @@ extern gui::UIShader *textProgram;
 extern RobotShader *mainProgram;
 extern material_t *robotMaterial;
 extern camera_t *camera;
-extern robot::Segment *sBase, *s6, *s5, *s4, *s3, *s2, *s1;
+//extern robot::Segment *sBase, *s6, *s5, *s4, *s3, *s2, *s1;
 extern std::vector<robot::Segment*> segments;
 extern std::vector<robot::Segment*> visible_segments;
 extern std::vector<robot::Segment*> servo_segments;

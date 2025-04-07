@@ -10,7 +10,7 @@ gui::UIShader *textProgram;
 RobotShader *mainProgram;
 material_t *robotMaterial;
 camera_t *camera;
-robot::Segment *sBase, *s6, *s5, *s4, *s3, *s2, *s1;
+//robot::Segment *sBase, *s6, *s5, *s4, *s3, *s2, *s1;
 std::vector<robot::Segment*> segments;
 std::vector<robot::Segment*> visible_segments;
 std::vector<robot::Segment*> servo_segments;

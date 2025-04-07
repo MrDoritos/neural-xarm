@@ -14,6 +14,8 @@
 #include "robot_interface.h"
 #include "joystick.h"
 
+#include "segment_loader.h"
+
 using namespace robot;
 
 struct RobotShader : public gui::MaterialShader {
@@ -90,7 +92,7 @@ void set_segments_from_sliders() {
     for (int i = 0; i < servo_sliders.size() && i < servo_segments.size(); i++)
         servo_segments[i]->set_rotation_bound(servo_sliders[i]->value);
 
-    robot_target = s3->get_origin(false) + s3->get_segment_vector(false);
+    robot_target = segments.back()->get_end_position(false);
 }
 
 void servo_slider_update(ui_slider_t* ui, ui_slider_t::ui_slider_v value) {
@@ -143,7 +145,7 @@ void set_segments_from_robot() {
             fprintf(stderr, "%i -> %s (%f -> %f)\n", sg->servo_num, ui->title_cached.c_str(), sg->get_rotation(false), sg->get_clamped_rotation());
     }
 
-    robot_target = s3->get_origin(false) + s3->get_segment_vector(false);
+    robot_target = segments.back()->get_end_position(false);
 }
 
 void set_robot_from_segments() {
@@ -184,7 +186,8 @@ void update_debug_info() {
         const int bufsize = 1000;
         char char_buf[bufsize];
 
-        glm::vec3 s3_t = s3->get_segment_vector() + s3->get_origin();
+        Segment *s3 = segments.back();
+        glm::vec3 s3_t = s3->get_end_position(false);
 
         debug_objects->add_sphere(robot_target, s3->model_scale);
 
@@ -335,6 +338,7 @@ int init() {
         debug_pedantic = state;
     }));
 
+    /*
     for (int i = 0; i < 7; i++)
         meshes.push_back(new mesh_t);
 
@@ -346,6 +350,7 @@ int init() {
     visible_segments = std::vector<robot::Segment*>({sBase, s6, s5, s4, s3, s2, s1});
     servo_segments = std::vector<robot::Segment*>({s6, s5, s4, s3, s2, s1});
     servo_sliders = std::vector({slider6, slider5, slider4, slider3, slider2, slider1});
+    */
 
     kinematics = new robot::Kinematics;
     robot_interface = new robot::RobotInterface(true);
@@ -364,7 +369,8 @@ void reset() {
         seg->set_rotation(0);
     set_sliders_from_segments();
     set_robot_from_segments();
-    robot_target = s3->get_segment_vector(false) + s3->get_origin(false);
+    //robot_target = s3->get_segment_vector(false) + s3->get_origin(false);
+    robot_target = segments.back()->get_end_position(false);
 }
 
 int load() {
@@ -394,6 +400,8 @@ int load() {
         Merge by distance 0.00001
         Origin on pivot point
     */
+
+    /*
     const char *mesh_locs[7] = {
         "assets/xarm-sbase.obj",
         "assets/xarm-s6.obj",
@@ -403,6 +411,7 @@ int load() {
         "assets/xarm-s2.obj",
         "assets/xarm-s1.obj"
     };
+    */
 
     int dhome = 500;
     int dpos = 500;
@@ -425,6 +434,7 @@ int load() {
         Gripper - 16.0 kg/cm @ 7.4v    
     */
 
+    /*
     robot::Segment segment_vals[7] = {
         {nullptr,        s6,  meshes[0], servo_vals[0], z_axis, 46.19, 0.5, 0.0 , false},   // 
         {sBase  ,        s5,  meshes[1], servo_vals[1], z_axis, 35.98, 0.2, 15.0, true },   // 6
@@ -434,17 +444,30 @@ int load() {
         {s3     ,        s1,  meshes[5], servo_vals[5], z_axis, 37.08, 0.2, 15.0, false},   // 2
         {s2     ,   nullptr,  meshes[6], servo_vals[6], z_axis, 67.75, 0.2, 15.0, false}    // 1
     };
+    */
 
+    /*
     for (int i = 0; i < sizeof mesh_locs / sizeof mesh_locs[0]; i++)
         if (meshes[i]->loadObj(mesh_locs[i]))
             handle_error((std::string("Failed to load model: ") + mesh_locs[i]).c_str());
 
     for (int i = 0; i < sizeof segment_vals / sizeof segment_vals[0]; i++)
         new (segments[i]) robot::Segment(segment_vals[i]);
+    */
+
+    robot::SegmentLoader segment_loader("assets/xarm");
+
+    if (segment_loader.load())
+        handle_error("Failed to load segments");
+
+    if (segment_loader.load_meshes())
+        handle_error("Failed to generate mesh buffers");
+
+    segment_loader.set(meshes, segments, visible_segments, servo_segments);
 
     reset();
     uiHandler->load();
-    //debugInfo->load();
+    debug_objects->load();
     framebuffer_size_callback(window, current_window[2], current_window[3]);
 
     joysticks->query_joysticks();
@@ -605,7 +628,8 @@ void handle_keyboard(GLFWwindow* window, float deltaTime) {
 
     int raise[] = {GLFW_KEY_R, GLFW_KEY_T, GLFW_KEY_Y, GLFW_KEY_U};
     int lower[] = {GLFW_KEY_F, GLFW_KEY_G, GLFW_KEY_H, GLFW_KEY_J};
-    robot::Segment *segments[] = {s6,s5,s4,s3};
+    robot::Segment *segs[4];
+    std::copy(segments.begin()+1,segments.begin()+5,segs);
 
     float movementFactor = movementSpeed;
     if (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS)
@@ -614,7 +638,7 @@ void handle_keyboard(GLFWwindow* window, float deltaTime) {
     bool change_2 = false;
 
     for (int i = 0; i < 4; i++) {
-        auto *seg = segments[i];
+        auto *seg = segs[i];
         auto rot = seg->get_rotation(false);
         if (glfwGetKey(window, raise[i]) == GLFW_PRESS) {
             rot += movementFactor * deltaTime;
@@ -630,7 +654,8 @@ void handle_keyboard(GLFWwindow* window, float deltaTime) {
     }
 
     if (change_2) {
-        robot_target = s3->get_segment_vector() + s3->get_origin();
+        //robot_target = s3->get_segment_vector() + s3->get_origin();
+        robot_target = segments.back()->get_end_position(true);
         set_sliders_from_segments();
     }
 

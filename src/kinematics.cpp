@@ -15,11 +15,13 @@ bool Kinematics::solve_inverse(vec3_d coordsIn) {
             segments.push_back(seg);
     }
 
+    return glsuccess;
+
     assert(segments.size() && "No available segments for IK\n");
     
     vec3 target = coordsIn - vec3(segments[0]->get_origin(false));
 
-    return gl_success;
+    return glsuccess;
 }
 
 bool Kinematics::solve_inverse_simple(vec3_d coordsIn) {
@@ -34,6 +36,7 @@ bool Kinematics::solve_inverse_simple(vec3_d coordsIn) {
 
     //std::vector<Segment*> &segments = visible_segments;
     std::vector<Segment*> segments(visible_segments.begin(), visible_segments.end()-2);
+    Segment *s6 = segments[1], *s5 = segments[1];
 
     bool calculation_failure = false;
 

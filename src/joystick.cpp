@@ -167,7 +167,8 @@ void Joystick::process_input(double delta_time) {
             rest_robot();
 
         if (!camera_move && (dp[0] || dp[1])) {
-            auto dir = s3->get_segment_vector();
+            //auto dir = s3->get_segment_vector();
+            auto dir = segments.back()->get_segment_vector();
             auto sp = vec3_d(dir) * vec3_d(0.01) * delta_time;
             if (dp[0])
                 robot_target -= sp;
@@ -331,6 +332,8 @@ void Joystick::set_robot(double delta_time) {
             ndd = scale_axes(ndd) * delta_time;
 
             if (glm::length2(ndd) > 0) {
+                Segment *s2 = *(segments.end()-2), *s1 = *(segments.end()-1);
+
                 float s2r = s2->get_rotation(false);
                 float s1r = s1->get_rotation(false);
 

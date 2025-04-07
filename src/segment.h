@@ -9,27 +9,6 @@ namespace robot {
 
 template<typename SERVO_T = int, typename T = float>
 struct robot_servo_T {
-    inline robot_servo_T() {}
-
-    inline robot_servo_T(int servo_num, 
-                  SERVO_T servo_min, 
-                  SERVO_T servo_max, 
-                  SERVO_T servo_home, 
-                  SERVO_T end_pos, 
-                  SERVO_T cur_pos, 
-                  T degrees_per_second, 
-                  T steps_per_degree):
-    servo_num(servo_num),
-    servo_min(servo_min),
-    servo_max(servo_max),
-    servo_home(servo_home),
-    servo_end_position(end_pos),
-    servo_cur_position(cur_pos),
-    degrees_per_second(degrees_per_second),
-    steps_per_degree(steps_per_degree) {
-
-    }
-
     using dur_type = long;
     using servo_type = SERVO_T;
     using value_type = T;
@@ -46,6 +25,33 @@ struct robot_servo_T {
 
     dur_type min_command_interval = 20;
     SERVO_T min_command_threshold = 1;
+
+    inline robot_servo_T():
+            servo_num(0),
+            servo_min(0),
+            servo_max(1000),
+            servo_home(500),
+            servo_end_position(500),
+            servo_cur_position(500),
+            degrees_per_second(700),
+            steps_per_degree(240.0/1000.0) { }
+
+    inline robot_servo_T(int servo_num, 
+                  SERVO_T servo_min, 
+                  SERVO_T servo_max, 
+                  SERVO_T servo_home, 
+                  SERVO_T end_pos, 
+                  SERVO_T cur_pos, 
+                  T degrees_per_second, 
+                  T steps_per_degree):
+            servo_num(servo_num),
+            servo_min(servo_min),
+            servo_max(servo_max),
+            servo_home(servo_home),
+            servo_end_position(end_pos),
+            servo_cur_position(cur_pos),
+            degrees_per_second(degrees_per_second),
+            steps_per_degree(steps_per_degree) { }
 
     template<typename RET = T, typename VT = SERVO_T>
     inline constexpr RET to_degrees(const VT &v) const {
@@ -136,10 +142,40 @@ using robot_servo_t = robot_servo_T<int, float>;
 template<typename mesh_base = mesh_t/*, typename robot_servo_type_T = robot_servo_T<int, float>*/>
 struct SegmentT : public robot_servo_T<int, float> {
     using robot_servo_type = robot_servo_T<int, float>;
-    SegmentT() {}
+    using mesh_type = mesh_base;
 
-    inline SegmentT(SegmentT *parent, SegmentT *child, mesh_base *mesh, const robot_servo_type &servo_config, const glm::vec3 &rotation_axis, const float &length, const float &mass, const float &torque, const bool &solve_kinematic)
-           :robot_servo_type(servo_config),
+    float model_scale = 0.1;
+    glm::vec3 rotation_axis;
+    glm::vec3 origin_offset;
+    SegmentT<> *parent, *child;
+    glm::vec3 debug_color;
+    float length, mass, torque;
+    bool solve_kinematic;
+    mesh_base *mesh;
+
+    SegmentT():
+            parent(0),
+            child(0),
+            mesh(0),
+            rotation_axis(0,0,0),
+            length(0),
+            mass(0),
+            torque(0),
+            solve_kinematic(0),
+            model_scale(0.1),
+            origin_offset(0,0,0),
+            debug_color(0,0,0) { }
+
+    inline SegmentT(SegmentT *parent, 
+                    SegmentT *child, 
+                    mesh_base *mesh, 
+                    const robot_servo_type &servo_config, 
+                    const glm::vec3 &rotation_axis, 
+                    const float &length, 
+                    const float &mass, 
+                    const float &torque, 
+                    const bool &solve_kinematic):
+            robot_servo_type(servo_config),
             parent(parent),
             child(child),
             mesh(mesh),
@@ -147,7 +183,10 @@ struct SegmentT : public robot_servo_T<int, float> {
             length(length),
             mass(mass),
             torque(torque),
-            solve_kinematic(solve_kinematic) { }
+            solve_kinematic(solve_kinematic),
+            model_scale(0.1),
+            origin_offset(0,0,0),
+            debug_color(0,0,0) { }
 
     template<typename ROT_T = float>
     inline constexpr ROT_T get_clamped_rotation(const bool &allow_interpolate = false) const {
@@ -227,6 +266,10 @@ struct SegmentT : public robot_servo_T<int, float> {
         return parent->get_segment_vector(allow_interpolate) + parent->get_origin(allow_interpolate);
     }
 
+    inline constexpr glm::vec3 get_end_position(const bool &allow_interpolate = true) {
+        return get_segment_vector(allow_interpolate) + get_origin(allow_interpolate);
+    }
+
     inline constexpr glm::vec3 get_midpoint(const bool &allow_interpolate = true) const {
         return get_segment_vector(allow_interpolate) * 0.5f;
     }
@@ -283,13 +326,6 @@ struct SegmentT : public robot_servo_T<int, float> {
     */
     float get_servo_load(const bool &allow_interpolate = true) const;
 
-    float model_scale = 0.1;
-    glm::vec3 rotation_axis;
-    SegmentT<> *parent, *child;
-    glm::vec3 debug_color;
-    float length, mass, torque;
-    bool solve_kinematic;
-    mesh_base *mesh;
 };
 
 using Segment = robot::SegmentT<>;

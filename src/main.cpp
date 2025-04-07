@@ -271,26 +271,8 @@ int init() {
     debug_objects = new debug_object_t(camera, mainProgram, circleTexture);
     ui_servo_sliders = uiHandler->add_child(new ui_element_t(window, uiHandler->XYWH));
 
-    glm::vec4 sliderPos = {0.45, -0.95,0.5,0.1};
-    glm::vec4 sliderAdd = {0.0,0.2,0,0};
-    glm::vec2 sMM = {-180, 180.};
-    
-    int sl = 0;
-    slider6 = ui_servo_sliders->add_child(new ui_slider_t(window, textProgram, textTexture, sliderPos, sMM.x, sMM.y, sl++, "Servo 6", true, servo_slider_update));
-    slider5 = ui_servo_sliders->add_child(new ui_slider_t(window, textProgram, textTexture, sliderPos + (sliderAdd * glm::vec4(sl++)), sMM.x, sMM.y, 0., "Servo 5", true, servo_slider_update));
-    slider4 = ui_servo_sliders->add_child(new ui_slider_t(window, textProgram, textTexture, sliderPos + (sliderAdd * glm::vec4(sl++)), sMM.x, sMM.y, 0., "Servo 4", true, servo_slider_update));
-    slider3 = ui_servo_sliders->add_child(new ui_slider_t(window, textProgram, textTexture, sliderPos + (sliderAdd * glm::vec4(sl++)), sMM.x, sMM.y, 0., "Servo 3", true, servo_slider_update));
-    slider2 = ui_servo_sliders->add_child(new ui_slider_t(window, textProgram, textTexture, sliderPos + (sliderAdd * glm::vec4(sl++)), sMM.x, sMM.y, 0., "Servo 2", true, servo_slider_update));
-    slider1 = ui_servo_sliders->add_child(new ui_slider_t(window, textProgram, textTexture, sliderPos + (sliderAdd * glm::vec4(sl++)), sMM.x, sMM.y, 0., "Servo 1", true, servo_slider_update));
-    //debugInfo = new ui_text_t(window, {0.0,0.0,1.,1.}, "Hello world 2!");
-    
-    slider_ambient = debugInfo->add_child(new ui_slider_t(window, textProgram, textTexture, sliderPos + (sliderAdd * glm::vec4(sl++)), -2., 2., -0.3, "Ambient Light", false));
-    slider_diffuse = debugInfo->add_child(new ui_slider_t(window, textProgram, textTexture, sliderPos + (sliderAdd * glm::vec4(sl++)), -2., 2., 1.5, "Diffuse Light", false));
-    slider_specular = debugInfo->add_child(new ui_slider_t(window, textProgram, textTexture, sliderPos + (sliderAdd * glm::vec4(sl++)), -2., 2., -0.4, "Specular Light", false));
-    slider_shininess = debugInfo->add_child(new ui_slider_t(window, textProgram, textTexture, sliderPos + (sliderAdd * glm::vec4(sl++)), -2., 2., 0.6, "Shininess", false));
-
-    sliderPos = glm::vec4{-0.95,-.2,0,0} + glm::vec4{0,0,.25,0.1};
-    sliderAdd = {0,.105,0,0};
+    glm::vec4 sliderPos = glm::vec4{-0.95,-.2,0,0} + glm::vec4{0,0,.25,0.1};
+    glm::vec4 sliderAdd = {0,.105,0,0};
 
     auto &gbl = global_text_parameters;
     float defaults[] = {
@@ -338,20 +320,6 @@ int init() {
         debug_pedantic = state;
     }));
 
-    /*
-    for (int i = 0; i < 7; i++)
-        meshes.push_back(new mesh_t);
-
-    robot::Segment **s_pos[] = { &sBase, &s6, &s5, &s4, &s3, &s2, &s1 };
-
-    for (int i = 0; i < 7; i++)
-        segments.push_back(*s_pos[i] = new robot::Segment);
-
-    visible_segments = std::vector<robot::Segment*>({sBase, s6, s5, s4, s3, s2, s1});
-    servo_segments = std::vector<robot::Segment*>({s6, s5, s4, s3, s2, s1});
-    servo_sliders = std::vector({slider6, slider5, slider4, slider3, slider2, slider1});
-    */
-
     kinematics = new robot::Kinematics;
     robot_interface = new robot::RobotInterface(true);
     joysticks = new robot::Joystick(robot_interface, camera, kinematics);
@@ -371,6 +339,23 @@ void reset() {
     set_robot_from_segments();
     //robot_target = s3->get_segment_vector(false) + s3->get_origin(false);
     robot_target = segments.back()->get_end_position(false);
+}
+
+int make_sliders() {
+    glm::vec4 sliderPos = {0.45, -0.95,0.5,0.1};
+    glm::vec4 sliderAdd = {0.0,0.2,0,0};
+    glm::vec2 sMM = {-180, 180.};
+    
+    int sl = 0;
+    for (auto *seg : robot::segments)
+        servo_sliders.push_back(ui_servo_sliders->add_child(new ui_slider_t(window, robot::textProgram, robot::textTexture, sliderPos + (sliderAdd * glm::vec4(sl++)), sMM.x, sMM.y, 0., std::format("Servo {}", seg->servo_num), true, servo_slider_update)));
+
+    slider_ambient = debugInfo->add_child(new ui_slider_t(window, textProgram, textTexture, sliderPos + (sliderAdd * glm::vec4(sl++)), -2., 2., -0.3, "Ambient Light", false));
+    slider_diffuse = debugInfo->add_child(new ui_slider_t(window, textProgram, textTexture, sliderPos + (sliderAdd * glm::vec4(sl++)), -2., 2., 1.5, "Diffuse Light", false));
+    slider_specular = debugInfo->add_child(new ui_slider_t(window, textProgram, textTexture, sliderPos + (sliderAdd * glm::vec4(sl++)), -2., 2., -0.4, "Specular Light", false));
+    slider_shininess = debugInfo->add_child(new ui_slider_t(window, textProgram, textTexture, sliderPos + (sliderAdd * glm::vec4(sl++)), -2., 2., 0.6, "Shininess", false));
+
+    return glsuccess;
 }
 
 int load() {
@@ -455,7 +440,7 @@ int load() {
         new (segments[i]) robot::Segment(segment_vals[i]);
     */
 
-    robot::SegmentLoader segment_loader("assets/xarm");
+    robot::SegmentLoader segment_loader("assets/generic");
 
     if (segment_loader.load())
         handle_error("Failed to load segments");
@@ -464,6 +449,9 @@ int load() {
         handle_error("Failed to generate mesh buffers");
 
     segment_loader.set(meshes, segments, visible_segments, servo_segments);
+
+    if (make_sliders())
+        handle_error("Failed to make sliders");
 
     reset();
     uiHandler->load();

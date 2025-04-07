@@ -65,6 +65,10 @@ If you have any issues, feel free to submit an issue or contact me.
 
 ### To-Do
 
+- [x] Robot descriptor format (simple version)
+- [x] Multiple robots can now be rendered and transformed
+- [ ] Expand descriptor
+- [ ] Solve physics problem and start drafting the iterative solver
 - [ ] Conceptualize new inverse kinematics solver
 - [ ] Test control over bluetooth HID (need the robot again)
 

@@ -3,6 +3,8 @@
 #include "common.h"
 #include "util.h"
 
+#include <glm/gtx/norm.hpp>
+
 struct mesh_t;
 
 namespace robot {
@@ -225,8 +227,11 @@ struct SegmentT : public robot_servo_T<int, float> {
     }
 
     inline constexpr glm::mat4 get_rotation_matrix(const bool &allow_interpolate = true) const {
-        if (!parent)
-            return glm::rotate(glm::mat4(1.0f), glm::radians(-90.0f), glm::vec3(x_axis));
+        if (!parent) {
+            auto cross = glm::cross(rotation_axis, glm::vec3(y_axis));
+            auto dot = glm::dot(rotation_axis, glm::vec3(y_axis)) * float(M_PI);
+            return glm::rotate(glm::mat4(1.0f), dot + float(M_PI * 0.5), cross);
+        }
 
         return glm::rotate(parent->get_rotation_matrix(allow_interpolate), glm::radians(get_rotation(allow_interpolate)), rotation_axis);
     }
@@ -247,23 +252,23 @@ struct SegmentT : public robot_servo_T<int, float> {
     }
 
     inline constexpr glm::vec3 get_origin(const bool &allow_interpolate = true) const {
-        if (!parent) {
-            if (!mesh) return glm::vec3(0);
-            return mesh->position;
-        }
+        glm::vec3 offset = (mesh ? mesh->position : glm::vec3(0)) + origin_offset;
 
-        if (servo_num == 5) { //shift forward just for this servo
+        offset = offset * model_scale;
+
+        if (!parent)
+            return offset;
+
+        glm::vec3 p_vector = parent->get_end_position(allow_interpolate);
+
+        if (glm::length2(offset) > 0) {
             glm::mat4 iden = parent->get_rotation_matrix(allow_interpolate);
-            auto trn = glm::vec3(2.54f * -model_scale, 0., 0.);
-            iden = glm::translate(iden, trn);
-            iden = glm::rotate(iden, glm::radians(90.0f), {0,0,1});
+            iden = glm::translate(iden, offset);
 
-            return parent->get_segment_vector(allow_interpolate) + 
-                   parent->get_origin(allow_interpolate) + 
-                   glm::vec3(iden[3]);
+            return p_vector + glm::vec3(iden[3]);
         }
 
-        return parent->get_segment_vector(allow_interpolate) + parent->get_origin(allow_interpolate);
+        return p_vector + offset;
     }
 
     inline constexpr glm::vec3 get_end_position(const bool &allow_interpolate = true) {

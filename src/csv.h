@@ -75,7 +75,7 @@ class CSVIterator
         CSVIterator()                   :m_str(nullptr) {}
 
         // Pre Increment
-        CSVIterator& operator++()               {if (m_str) { if (!((*m_str) >> m_row) || !m_str->good()){m_str = nullptr;}}return *this;}
+        CSVIterator& operator++()               {if (m_str) { if (!m_str->good() || !((*m_str) >> m_row)){m_str = nullptr;}}return *this;}
         // Post increment
         CSVIterator operator++(int)             {CSVIterator    tmp(*this);++(*this);return tmp;}
         CSVRow const& operator*()   const       {return m_row;}

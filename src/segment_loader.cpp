@@ -102,6 +102,8 @@ int SegmentLoader::parse(CSVRowIterator &iter, seg_type *segment) {
     iter >> segment->model_scale;
     iter >> segment->add_slider;
     iter >> segment->solve_kinematic;
+    iter >> segment->torque;
+    iter >> segment->mass;
 
     segment->mesh = new mesh_type;
     this->meshes.push_back(segment->mesh);

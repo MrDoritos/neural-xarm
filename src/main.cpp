@@ -13,7 +13,6 @@
 #include "segment.h"
 #include "robot_interface.h"
 #include "joystick.h"
-
 #include "segment_loader.h"
 
 using namespace robot;
@@ -89,8 +88,10 @@ namespace render {
 }
 
 void set_segments_from_sliders() {
-    for (int i = 0; i < servo_sliders.size() && i < servo_segments.size(); i++)
-        servo_segments[i]->set_rotation_bound(servo_sliders[i]->value);
+    int i = 0;
+    for (auto *seg : servo_segments)
+        if (seg->add_slider)
+            seg->set_rotation_bound(servo_sliders[i++]->value);
 
     robot_target = segments.back()->get_end_position(false);
 }
@@ -131,8 +132,10 @@ void update_whatever(ui_slider_t* ui, ui_slider_t::ui_slider_v value) {
 }
 
 void set_sliders_from_segments() {
-    for (int i = 0; i < servo_sliders.size() && i < servo_segments.size(); i++)
-        servo_sliders[i]->set_value(servo_segments[i]->get_clamped_rotation(), false);
+    int i = 0;
+    for (auto *seg : servo_segments)
+        if (seg->add_slider)
+            servo_sliders[i++]->set_value(seg->get_clamped_rotation(), false);
 }
 
 void set_segments_from_robot() {
@@ -376,29 +379,6 @@ int load() {
         textProgram->load()))
         handle_error("Failed to compile shaders");
 
-    /*
-        Forward: -Y
-        Up: Z
-        UV, Triangulate, Normals, Modifiers
-        Selection only
-
-        Shade auto smooth 30*
-        Merge by distance 0.00001
-        Origin on pivot point
-    */
-
-    /*
-    const char *mesh_locs[7] = {
-        "assets/xarm-sbase.obj",
-        "assets/xarm-s6.obj",
-        "assets/xarm-s5.obj",
-        "assets/xarm-s4.obj",
-        "assets/xarm-s3.obj",
-        "assets/xarm-s2.obj",
-        "assets/xarm-s1.obj"
-    };
-    */
-
     int dhome = 500;
     int dpos = 500;
     int drp = 500;
@@ -414,42 +394,13 @@ int load() {
         { 1, 200, 850, dhome, dpos, drp, 641.0f, dconv } // gripper
     };
 
-    /*
-        LX-15D  - 15.0 kg/cm @ 6v, 17 kg/cm @ 7.4v
-        LX-225  - 25.0 kg/cm @ 7.4v
-        Gripper - 16.0 kg/cm @ 7.4v    
-    */
-
-    /*
-    robot::Segment segment_vals[7] = {
-        {nullptr,        s6,  meshes[0], servo_vals[0], z_axis, 46.19, 0.5, 0.0 , false},   // 
-        {sBase  ,        s5,  meshes[1], servo_vals[1], z_axis, 35.98, 0.2, 15.0, true },   // 6
-        {s6     ,        s4,  meshes[2], servo_vals[2], y_axis, 100.0, 0.2, 25.0, true },   // 5
-        {s5     ,        s3,  meshes[3], servo_vals[3], y_axis, 96.00, 0.2, 15.0, true },   // 4
-        {s4     ,        s2,  meshes[4], servo_vals[4], y_axis, 50.90, 0.2, 15.0, true },   // 3
-        {s3     ,        s1,  meshes[5], servo_vals[5], z_axis, 37.08, 0.2, 15.0, false},   // 2
-        {s2     ,   nullptr,  meshes[6], servo_vals[6], z_axis, 67.75, 0.2, 15.0, false}    // 1
-    };
-    */
-
-    /*
-    for (int i = 0; i < sizeof mesh_locs / sizeof mesh_locs[0]; i++)
-        if (meshes[i]->loadObj(mesh_locs[i]))
-            handle_error((std::string("Failed to load model: ") + mesh_locs[i]).c_str());
-
-    for (int i = 0; i < sizeof segment_vals / sizeof segment_vals[0]; i++)
-        new (segments[i]) robot::Segment(segment_vals[i]);
-    */
-
-    robot::SegmentLoader segment_loader("assets/generic");
-
-    if (segment_loader.load())
+    if (segment_loader->load())
         handle_error("Failed to load segments");
 
-    if (segment_loader.load_meshes())
+    if (segment_loader->load_meshes())
         handle_error("Failed to generate mesh buffers");
 
-    segment_loader.set(meshes, segments, visible_segments, servo_segments);
+    segment_loader->set(meshes, segments, visible_segments, servo_segments);
 
     if (make_sliders())
         handle_error("Failed to make sliders");
@@ -468,8 +419,22 @@ int load() {
     return glsuccess;
 }
 
-int main() {
-    if (init_context() || init() || load())
+int parse_args(int argc, char **argv) {
+    robot::segment_loader = new robot::SegmentLoader("assets/xarm");
+    
+    if (argc < 2)
+        return glsuccess;
+
+    new (robot::segment_loader)robot::SegmentLoader(argv[1]);
+
+    return glsuccess;
+}
+
+int main(int argc, char **argv) {
+    if (parse_args(argc, argv)
+        || init_context()
+        || init()
+        || load())
         handle_error("Failed to load", glfail);
 
     while (!glfwWindowShouldClose(window)) {

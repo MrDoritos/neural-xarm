@@ -10,7 +10,6 @@ gui::UIShader *textProgram;
 RobotShader *mainProgram;
 material_t *robotMaterial;
 camera_t *camera;
-//robot::Segment *sBase, *s6, *s5, *s4, *s3, *s2, *s1;
 std::vector<robot::Segment*> segments;
 std::vector<robot::Segment*> visible_segments;
 std::vector<robot::Segment*> servo_segments;
@@ -26,5 +25,6 @@ robot::Kinematics *kinematics;
 robot::Joystick *joysticks;
 robot::RobotInterface *robot_interface;
 gui::frametime_t frametime;
+robot::SegmentLoader *segment_loader;
 
 }

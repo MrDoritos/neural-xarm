@@ -21,6 +21,9 @@ namespace robot {
     struct Kinematics;
     struct Joystick;
     struct JoystickDevice;
+    template<typename>
+    struct SegmentLoader_T;
+    using SegmentLoader = SegmentLoader_T<SegmentT<>>;
     struct debug_info_t;
     struct debug_object_t;
 }
@@ -37,7 +40,6 @@ extern gui::UIShader *textProgram;
 extern RobotShader *mainProgram;
 extern material_t *robotMaterial;
 extern camera_t *camera;
-//extern robot::Segment *sBase, *s6, *s5, *s4, *s3, *s2, *s1;
 extern std::vector<robot::Segment*> segments;
 extern std::vector<robot::Segment*> visible_segments;
 extern std::vector<robot::Segment*> servo_segments;
@@ -53,5 +55,5 @@ extern robot::Kinematics *kinematics;
 extern robot::Joystick *joysticks;
 extern robot::RobotInterface *robot_interface;
 extern gui::frametime_t frametime;
-
+extern robot::SegmentLoader *segment_loader;
 }

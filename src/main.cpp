@@ -56,10 +56,24 @@ namespace render {
         auto seg_vec = segment->get_segment_vector(allow_interpolate);
         auto rot_mat = segment->get_rotation_matrix(allow_interpolate);
 
-        debug_objects->add_sphere(origin, segment->model_scale);
-        debug_objects->add_sphere(origin + seg_vec, segment->model_scale);
+        //debug_objects->add_sphere(origin, segment->model_scale);
+        //debug_objects->add_sphere(origin + seg_vec, segment->model_scale);
         render_vector(debug_objects, origin, origin + seg_vec);
-        debug_objects->add_circle(glm::translate(glm::mat4(1.0f), origin) * rot_mat, segment->get_length());
+
+        auto circle_x = glm::vec3(rot_mat[0]), circle_y = glm::vec3(rot_mat[1]), circle_z = glm::vec3(rot_mat[2]);
+        auto circle_dot = glm::dot(circle_x, circle_z) * float(M_PI);
+        auto circle_dot2 = glm::dot(circle_x, circle_y) * float(M_PI);
+        auto circle_cross = glm::cross(circle_x, circle_z);
+        auto circle_cross2 = glm::cross(circle_x, circle_y);
+        auto circle_mat = glm::mat4(1.0);
+        //auto circle_mat = glm::translate(glm::mat4(1.0f), origin) * glm::rotate(glm::mat4(1.0), circle_dot + float(M_PI * 0.5), circle_cross);
+        //auto circle_mat = glm::rotate(glm::translate(glm::mat4(1.0f), origin), circle_dot + float(M_PI * 0.5), circle_cross);
+        //no//auto circle_mat = glm::translate(glm::rotate(glm::mat4(1.0), circle_dot + float(M_PI * 0.5), circle_cross), origin);
+        circle_mat = glm::rotate(circle_mat, circle_dot2 + float(M_PI * 0.5), {0,0,1.0f});
+        circle_mat = glm::rotate(circle_mat, circle_dot + float(M_PI * 0.5), {0,1.0f,0});
+        
+        circle_mat[3] = glm::vec4(origin, 0.0f);
+        debug_objects->add_circle(circle_mat, segment->get_length());
 
         auto tran_rot_mat = glm::translate(rot_mat, origin);
 

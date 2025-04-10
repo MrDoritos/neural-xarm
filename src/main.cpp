@@ -14,6 +14,7 @@
 #include "robot_interface.h"
 #include "joystick.h"
 #include "segment_loader.h"
+#include "robot.h"
 
 using namespace robot;
 
@@ -96,7 +97,10 @@ namespace render {
     template<typename T = robot::Segment>
     void render_segments(const std::vector<T*> &segments, shader_program_t *program, camera_t *camera, const bool &allow_interpolate = true) {
         program->use();
-        for (T* segment : segments)
+        //for (T* segment : segments)
+        //    render_segment(segment, program, camera, allow_interpolate);
+        robot::Robot bot(robot::segments);
+        for (T* segment : bot.get_visible_segments())
             render_segment(segment, program, camera, allow_interpolate);
     }
 }

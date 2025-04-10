@@ -26,6 +26,7 @@ add_executable(${NEURAL_XARM_NAME}
     ${NEURAL_XARM_SOURCE_DIR}/xarm_common.cpp
     ${NEURAL_XARM_SOURCE_DIR}/segment_loader.cpp
     ${NEURAL_XARM_SOURCE_DIR}/csv.cpp
+    ${NEURAL_XARM_SOURCE_DIR}/robot.cpp
 )
 
 find_path(hidapi_INCLUDE_DIR hidapi/hidapi.h)

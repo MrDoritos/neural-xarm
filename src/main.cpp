@@ -18,6 +18,8 @@
 
 using namespace robot;
 
+robot::Robot bot(robot::segments);
+
 struct RobotShader : public gui::MaterialShader {
     RobotShader(const gui::MaterialShader &base):gui::MaterialShader(base) { }
     RobotShader() { }
@@ -99,8 +101,7 @@ namespace render {
         program->use();
         //for (T* segment : segments)
         //    render_segment(segment, program, camera, allow_interpolate);
-        robot::Robot bot(robot::segments);
-        for (T* segment : bot.get_visible_segments())
+        for (T *segment : bot.get_visible_segments())
             render_segment(segment, program, camera, allow_interpolate);
     }
 }
@@ -368,8 +369,9 @@ int make_sliders() {
     glm::vec2 sMM = {-180, 180.};
     
     int sl = 0;
-    for (auto *seg : robot::segments)
-        if (seg->add_slider)
+    //for (auto *seg : robot::segments)
+    //    if (seg->add_slider)
+    for (auto *seg : bot.get_slider_segments())
             servo_sliders.push_back(ui_servo_sliders->add_child(new ui_slider_t(window, robot::textProgram, robot::textTexture, sliderPos + (sliderAdd * glm::vec4(sl++)), sMM.x, sMM.y, 0., std::format("Servo {}", seg->servo_num), true, servo_slider_update)));
 
     slider_ambient = debugInfo->add_child(new ui_slider_t(window, textProgram, textTexture, sliderPos + (sliderAdd * glm::vec4(sl++)), -2., 2., -0.3, "Ambient Light", false));

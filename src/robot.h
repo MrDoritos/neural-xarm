@@ -1,27 +1,18 @@
 #pragma once
 
 #include "xarm_common.h"
+#include <type_traits>
 
 namespace robot {
 
-template<typename ITER_T, typename VECTOR_T>
-struct BaseRange {
-    VECTOR_T &v;
+enum IteratorType : int {
+    None,
+    Visible,
+    Slider,
+    Kinematic
+};
 
-    BaseRange() { }
-    BaseRange(VECTOR_T &_v):
-        v(_v) { }
-    
-    ITER_T begin() const {
-        return v.begin();
-    }
-
-    ITER_T end() const {
-        return v.end();
-    }
-};  
-
-template<typename input_range>
+template<int ITER_T, typename input_range>
 struct BaseIterator {
     typedef std::input_iterator_tag iterator_category;
     typedef input_range::value_type value_type;
@@ -30,24 +21,33 @@ struct BaseIterator {
     typedef value_type &reference;
 
     difference_type pos;
-    const input_range *vector;
+    input_range *vector;
 
-    BaseIterator(const input_range &vec)
-        :vector(&vec),pos(0) { }
+    BaseIterator(input_range *vec)
+        :vector(vec),pos(0) { }
     BaseIterator()
         :vector(0),pos(0) { }
 
-    virtual bool check() const {
-        return true;
+    bool check() {
+        if constexpr (ITER_T == IteratorType::None)
+            return true;
+        else if constexpr (ITER_T == IteratorType::Visible)
+            return this->get()->visible;
+        else if constexpr (ITER_T == IteratorType::Slider)
+            return this->get()->add_slider;
+        else if constexpr (ITER_T == IteratorType::Kinematic)
+            return this->get()->solve_kinematic;
+        else
+            static_assert(0, "No value\n");
     }
 
-    pointer get() const {
-        return vector[pos];
+    value_type get() {
+        return vector->at(pos);
     }
 
     BaseIterator &operator++() {
-        for (int i = pos + 1; i < vector.size(); i++) {
-            if (vector[i]->visible) {
+        for (int i = pos + 1; i < vector->size(); i++) {
+            if (check()) {
                 pos++;
                 return *this;
             }
@@ -63,12 +63,12 @@ struct BaseIterator {
         return tmp;
     }
 
-    value_type &operator*() const {
-        return vector[pos];
+    value_type &operator*() {
+        return vector->at(pos);
     }
 
-    value_type *operator->() const {
-        return &vector[pos];
+    value_type *operator->() {
+        return &vector->at(pos);
     }
 
     bool operator==(BaseIterator const &rhs) const {
@@ -82,65 +82,58 @@ struct BaseIterator {
     }
 };
 
+template<int ITER_T, typename VECTOR_T>
+struct BaseRange {
+    using base_iterator = BaseIterator<ITER_T, VECTOR_T>;
+
+    VECTOR_T *v;
+
+    BaseRange() { }
+    BaseRange(VECTOR_T *_v):
+        v(_v) { }
+
+    base_iterator begin() {
+        return base_iterator(v);
+    }
+
+    base_iterator end() {
+        return base_iterator();
+    }
+};  
+
 template<typename seg_T>
 struct Robot_T {
     using seg_type = seg_T;
     using seg_vec = std::vector<seg_type*>;
     using iterator_type = seg_vec::iterator;
-    using base_iterator = BaseIterator<seg_type*>;
-    template<typename V_T>
-    using range_type = BaseRange<base_iterator, V_T>;
+    template<int ITER_T>
+    using base_iterator = BaseIterator<ITER_T, seg_vec>;
+    template<int ITER_T>
+    using range_type = BaseRange<ITER_T, seg_vec>;
 
-    seg_vec segments;
+    seg_vec &segments;
 
     Robot_T() { }
-    Robot_T(const seg_vec &segments)
+    Robot_T(seg_vec &segments)
         :segments(segments) { }
 
-    struct VisibleIterator : public base_iterator {
-        VisibleIterator(const base_iterator &v) { }
-        VisibleIterator() { }
-
-        bool check() const override {
-            return this->get()->is_visible;
-        }
-    };
-
-    struct ServoIterator : public base_iterator {
-        ServoIterator(const base_iterator &v) { }
-        ServoIterator() { }
-
-        bool check() const override {
-            return this->get()->add_slider;
-        }
-    };
-
-    struct KinematicIterator : public base_iterator {
-        KinematicIterator(const base_iterator &v) { }
-        KinematicIterator() { }
-
-        bool check() const override {
-            return this->get()->solve_kinematic;
-        }
-    };
-
-    range_type<base_iterator> get_segments() {
-        return range_type<base_iterator>(segments);
+    BaseRange<IteratorType::None, seg_vec> get_segments() {
+        return BaseRange<IteratorType::None, seg_vec>(&segments);
     }
 
-    range_type<VisibleIterator> get_visible_segments() {
-        return range_type<VisibleIterator>(segments);
+    BaseRange<IteratorType::Visible, seg_vec> get_visible_segments() {
+        return BaseRange<IteratorType::Visible, seg_vec>(&segments);
     }
 
-    range_type<ServoIterator> get_servo_segments() {
-        return range_type<ServoIterator>(segments);
+    BaseRange<IteratorType::Slider, seg_vec> get_slider_segments() {
+        return BaseRange<IteratorType::Slider, seg_vec>(&segments);
     }
 
-    range_type<KinematicIterator> get_kinematic_segments() {
-        return range_type<KinematicIterator>(segments);
+    BaseRange<IteratorType::Kinematic, seg_vec> get_kinematic_segments() {
+        return BaseRange<IteratorType::Kinematic, seg_vec>(&segments);
     }
 };
 
-using Robot = Robot_T<Segment>;
+using Robot = Robot_T<robot::Segment>;
 
 }

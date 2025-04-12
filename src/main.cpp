@@ -39,7 +39,6 @@ struct RobotShader : public gui::MaterialShader {
     }
 };
 
-
 namespace render {
     void render_vector(debug_object_t *debug_objects, glm::vec3 origin, glm::vec3 end) {
         //debug_objects->add_line(origin, end);

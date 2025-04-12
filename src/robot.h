@@ -111,27 +111,23 @@ struct Robot_T {
     template<int ITER_T>
     using range_type = BaseRange<ITER_T, seg_vec>;
 
-    seg_vec &segments;
+    seg_vec *segments;
 
-    Robot_T() { }
-    Robot_T(seg_vec &segments)
-        :segments(segments) { }
+    Robot_T();
 
-    range_type<robot::None> get_segments() {
-        return range_type<robot::None>(&segments);
-    }
+    Robot_T(seg_vec &segments);
 
-    range_type<robot::Visible> get_visible_segments() {
-        return range_type<robot::Visible>(&segments);
-    }
+    range_type<robot::None> get_segments();
 
-    range_type<robot::Slider> get_slider_segments() {
-        return range_type<robot::Slider>(&segments);
-    }
+    range_type<robot::Visible> get_visible_segments();
 
-    range_type<robot::Kinematic> get_kinematic_segments() {
-        return range_type<robot::Kinematic>(&segments);
-    }
+    range_type<robot::Slider> get_slider_segments();
+
+    range_type<robot::Kinematic> get_kinematic_segments();
+
+    glm::vec3 get_end_effector_pos(const bool &interpolate = true);
+
+    void set_end_effector_pos(glm::vec3 pos);
 };
 
 using Robot = Robot_T<robot::Segment>;

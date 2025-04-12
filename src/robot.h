@@ -24,7 +24,7 @@ struct BaseIterator {
     input_range *vector;
 
     BaseIterator(input_range *vec)
-        :vector(vec),pos(0) { }
+        :vector(vec),pos(0) { if (!check()) ++(*this); }
     BaseIterator()
         :vector(0),pos(0) { }
 
@@ -46,9 +46,9 @@ struct BaseIterator {
     }
 
     BaseIterator &operator++() {
-        for (int i = pos + 1; i < vector->size(); i++) {
+        pos++;
+        for (;vector && pos < vector->size(); pos++) {
             if (check()) {
-                pos++;
                 return *this;
             }
         }
@@ -117,20 +117,20 @@ struct Robot_T {
     Robot_T(seg_vec &segments)
         :segments(segments) { }
 
-    BaseRange<IteratorType::None, seg_vec> get_segments() {
-        return BaseRange<IteratorType::None, seg_vec>(&segments);
+    range_type<robot::None> get_segments() {
+        return range_type<robot::None>(&segments);
     }
 
-    BaseRange<IteratorType::Visible, seg_vec> get_visible_segments() {
-        return BaseRange<IteratorType::Visible, seg_vec>(&segments);
+    range_type<robot::Visible> get_visible_segments() {
+        return range_type<robot::Visible>(&segments);
     }
 
-    BaseRange<IteratorType::Slider, seg_vec> get_slider_segments() {
-        return BaseRange<IteratorType::Slider, seg_vec>(&segments);
+    range_type<robot::Slider> get_slider_segments() {
+        return range_type<robot::Slider>(&segments);
     }
 
-    BaseRange<IteratorType::Kinematic, seg_vec> get_kinematic_segments() {
-        return BaseRange<IteratorType::Kinematic, seg_vec>(&segments);
+    range_type<robot::Kinematic> get_kinematic_segments() {
+        return range_type<robot::Kinematic>(&segments);
     }
 };
 

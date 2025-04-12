@@ -108,9 +108,8 @@ namespace render {
 
 void set_segments_from_sliders() {
     int i = 0;
-    for (auto *seg : servo_segments)
-        if (seg->add_slider)
-            seg->set_rotation_bound(servo_sliders[i++]->value);
+    for (auto *seg : bot.get_slider_segments())
+        seg->set_rotation_bound(servo_sliders[i++]->value);
 
     robot_target = segments.back()->get_end_position(false);
 }
@@ -152,9 +151,8 @@ void update_whatever(ui_slider_t* ui, ui_slider_t::ui_slider_v value) {
 
 void set_sliders_from_segments() {
     int i = 0;
-    for (auto *seg : servo_segments)
-        if (seg->add_slider)
-            servo_sliders[i++]->set_value(seg->get_clamped_rotation(), false);
+    for (auto *seg : bot.get_slider_segments())
+        servo_sliders[i++]->set_value(seg->get_clamped_rotation(), false);
 }
 
 void set_segments_from_robot() {
@@ -171,10 +169,8 @@ void set_segments_from_robot() {
 }
 
 void set_robot_from_segments() {
-    for (int i = 0; i < servo_sliders.size(); i++) {
-        auto *sg = servo_segments[i];
-        sg->set_servo(sg->get_servo_interpolated());
-    }
+    for (auto *seg : bot.get_segments())
+        seg->set_servo(seg->get_servo_interpolated());
 }
 
 std::string segment_debug_info() {
@@ -197,7 +193,7 @@ std::string segment_debug_info() {
         );
     };
 
-    for (auto *seg : servo_segments)
+    for (auto *seg : bot.get_segments())
         ret += get_segment(seg);
 
     return ret;
@@ -205,7 +201,7 @@ std::string segment_debug_info() {
 
 void update_debug_info() {
     {
-        const int bufsize = 1000;
+        const int bufsize = 2000;
         char char_buf[bufsize];
 
         Segment *s3 = segments.back();

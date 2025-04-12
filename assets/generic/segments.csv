@@ -4,4 +4,6 @@
 3,0,-0.4,0,generic_s3.obj,1,0,0,2.9875,5,true,true,15.0,0.1
 4,0,0,0,generic_s4.obj,1,0,0,2.2956,5,true,true,15.0,0.1
 5,0,0,0,generic_s5.obj,0,1,0,0.5325,5,true,true,15.0,0.1
-6,0,0.23,2.0675,generic_s6.obj,1,0,0,3.5,5,true,true,15.0,0.1
+6,0,0.23,2.0675,generic_s6.obj,1,0,0,3,5,true,true,15.0,0.1
+7,0,0,0,generic_s7.obj,1,0,0,1.15125,5,true,true,15.0,0.1
+8,0,-0.1875,0,generic_s8.obj,1,0,0,3.5,5,true,true,15.0,0.1
